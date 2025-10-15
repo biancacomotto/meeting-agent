@@ -1,49 +1,62 @@
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { tool } from "@langchain/core/tools";
-
-import { z } from "zod";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { configDotenv } from "dotenv";
+import getStats from "./tools/get_stats.mjs";
+import login from "./tools/login.mjs";
+import register from "./tools/register.mjs";
+import sendEmail from "./tools/send_email.mjs";
+import { MemorySaver } from "@langchain/langgraph";
+import readline from "readline";
 
 configDotenv({ quiet: true });
 
-const search = tool(
-  async ({ query }) => {
-    if (
-      query.toLowerCase().includes("sf") ||
-      query.toLowerCase().includes("san francisco")
-    ) {
-      return "It's 60 degrees and foggy.";
-    }
-    return "It's 90 degrees and sunny.";
-  },
-  {
-    name: "search",
-    description: "Call to surf the web.",
-    schema: z.object({
-      query: z.string().describe("The query to use in your search."),
-    }),
-  }
-);
+const checkpointer = new MemorySaver();
 
 const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY,
-  model: "gemini-2.5-flash"
-})
+  model: "gemini-2.5-flash",
+});
 
 const agent = createReactAgent({
   llm: model,
-  tools: [search],
+  tools: [getStats, login, register, sendEmail],
+  checkpointer,
 });
 
-const result = await agent.invoke({
-  messages: [
-    {
-      role: "user",
-      content: "what is the weather in sf",
-    },
-  ],
+const instance = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
 });
 
-const last = result.messages[result.messages.length - 1];
-console.log(last.content);
+async function main() {
+  while (true) {
+    await new Promise((resolve) => {
+      instance.question("> ", (response) => {
+        if (
+          response.toLowerCase() === "exit" ||
+          response.toLowerCase() === "quit"
+        ) {
+          instance.close();
+          exit(1);
+        }
+
+        agent
+          .invoke(
+            { messages: [{ role: "user", content: response }] },
+            { configurable: { thread_id: "thread_id" } }
+          )
+          .then((result) => {
+            const last = result.messages[result.messages.length - 1];
+            console.log(last.content);
+            resolve();
+          })
+          .catch((error) => {
+            console.log(error);
+            resolve();
+          });
+      });
+    });
+  }
+}
+
+main();

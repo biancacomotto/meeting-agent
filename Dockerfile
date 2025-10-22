@@ -19,20 +19,19 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
-# Usa la base SQLite incluida
 ENV DATABASE_URL="file:./prisma/dev.db"
 ENV LLM_MODEL="gemini-2.5-flash"
 
 # Copiamos dependencias y build
 COPY --from=builder /app/node_modules ./node_modules
+# 👇 Agregá estas dos líneas:
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
-
-# Si querés renombrar la base dentro del contenedor (opcional)
-# RUN cp ./prisma/dev.db ./prisma/prod.db
-# ENV DATABASE_URL="file:./prisma/prod.db"
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

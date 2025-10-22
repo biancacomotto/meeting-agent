@@ -24,14 +24,16 @@ ENV LLM_MODEL="gemini-2.5-flash"
 
 # Copiamos dependencias y build
 COPY --from=builder /app/node_modules ./node_modules
-# 👇 Agregá estas dos líneas:
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
+
+# 🔑 IMPORTANTE: copiá el client generado en tu ruta custom
+COPY --from=builder /app/app/generated ./app/app/generated
+
+# (opcional pero recomendado) regenerar para asegurar binarios musl correctos
+RUN npx prisma generate
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

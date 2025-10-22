@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import "server-only";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
@@ -45,12 +44,7 @@ export async function restaurantAgent(conversationId: string, message: string) {
   );
 
   const last = result.messages[result.messages.length - 1];
-  const reply =
-    typeof last.content === "string"
-      ? last.content
-      : Array.isArray(last.content)
-      ? last.content.map((c: any) => c.text || "").join(" ")
-      : "No entendí tu pedido.";
+  const reply = last.text;
 
   await appendConversationHistory(conversationId, conversationId, [
     { role: "user", content: message, ts: Date.now() },

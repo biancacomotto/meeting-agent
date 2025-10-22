@@ -9,12 +9,12 @@ pnpm-lock.yaml
 .out
 dist
 
-# local env & prisma db
+# env & sqlite temp files
 .env
 .env.*
-prisma/dev.db-journal
 prisma/*.db-shm
 prisma/*.db-wal
+prisma/*-journal
 
 # misc
 .git

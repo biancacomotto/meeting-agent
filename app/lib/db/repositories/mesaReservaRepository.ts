@@ -1,25 +1,23 @@
-import prisma from "../prisma";
+import { isSameDay, mesaReservas, reservas } from "../memory/store";
 
 export const mesaReservaRepository = {
   async create(data: { mesaId: number; reservaId: number }) {
-    return prisma.mesaReserva.create({ data });
+    mesaReservas.push({ ...data });
+    return data;
   },
 
   async deleteByReserva(reservaId: number) {
-    return prisma.mesaReserva.deleteMany({ where: { reservaId } });
+    for (let i = mesaReservas.length - 1; i >= 0; i--) {
+      if (mesaReservas[i].reservaId === reservaId) mesaReservas.splice(i, 1);
+    }
+    return { count: 1 };
   },
 
   async findByMesaAndDate(mesaId: number, fecha: Date) {
-    return prisma.mesaReserva.findFirst({
-      where: {
-        mesaId,
-        reserva: {
-          fecha: {
-            gte: new Date(fecha.setHours(0, 0, 0, 0)),
-            lt: new Date(fecha.setHours(23, 59, 59, 999)),
-          },
-        },
-      },
+    const match = mesaReservas.find((mr) => {
+      const r = reservas.get(mr.reservaId);
+      return r && mr.mesaId === mesaId && isSameDay(r.fecha, fecha);
     });
+    return match ?? null;
   },
 };

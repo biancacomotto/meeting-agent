@@ -1,39 +1,40 @@
-import prisma from "../prisma";
+import {
+  isSameDay,
+  mesaReservas,
+  mesas,
+  nextMesaId,
+  reservas,
+} from "../memory/store";
 
 export const mesaRepository = {
   async getAll() {
-    return prisma.mesa.findMany();
+    return Array.from(mesas.values());
   },
 
   async getById(id: number) {
-    return prisma.mesa.findUnique({ where: { id } });
+    return mesas.get(id) ?? null;
   },
 
   async create(data: { numero: number; capacidad: number }) {
-    return prisma.mesa.create({ data });
+    const id = nextMesaId();
+    const mesa = { id, ...data };
+    mesas.set(id, mesa);
+    return mesa;
   },
 
   async getAvailable(fecha: Date, cantidad: number) {
-    // Buscar todas las reservas del día con sus mesas
-    const reservas = await prisma.reserva.findMany({
-      where: {
-        fecha: {
-          gte: new Date(fecha.setHours(0, 0, 0, 0)),
-          lt: new Date(fecha.setHours(23, 59, 59, 999)),
-        },
-      },
-      include: { mesas: true },
-    });
-
-    const mesasReservadasIds = reservas.flatMap((r) =>
-      r.mesas.map((m) => m.mesaId)
+    // reservas del día + sus mesas ocupadas
+    const reservasDelDia = Array.from(reservas.values()).filter((r) =>
+      isSameDay(r.fecha, fecha)
+    );
+    const mesasReservadasIds = new Set(
+      mesaReservas
+        .filter((mr) => reservasDelDia.some((r) => r.id === mr.reservaId))
+        .map((mr) => mr.mesaId)
     );
 
-    return prisma.mesa.findMany({
-      where: {
-        id: { notIn: mesasReservadasIds },
-        capacidad: { gte: cantidad },
-      },
-    });
+    return Array.from(mesas.values()).filter(
+      (m) => !mesasReservadasIds.has(m.id) && m.capacidad >= cantidad
+    );
   },
 };

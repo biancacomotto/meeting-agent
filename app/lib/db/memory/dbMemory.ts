@@ -1,14 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import prisma from "../prisma";
 
 type Msg = { role: "user" | "assistant"; content: string; ts: number };
+
 const HISTORY_LIMIT = 12;
+
+// Estado en memoria
+const customerStateById = new Map<string, Record<string, any>>();
+const conversationById = new Map<string, Msg[]>();
 
 export async function getCustomerState(
   customerId: string
 ): Promise<Record<string, any>> {
-  const row = await prisma.customerMemory.findUnique({ where: { customerId } });
-  return (row?.stateJson as any) ?? {};
+  return customerStateById.get(customerId) ?? {};
 }
 
 export async function upsertCustomerState(
@@ -17,32 +20,21 @@ export async function upsertCustomerState(
 ) {
   const prev = await getCustomerState(customerId);
   const next = { ...prev, ...patch };
-  await prisma.customerMemory.upsert({
-    where: { customerId },
-    create: { customerId, stateJson: next },
-    update: { stateJson: next },
-  });
+  customerStateById.set(customerId, next);
 }
 
 export async function getConversationHistory(
   conversationId: string
 ): Promise<Msg[]> {
-  const row = await prisma.conversationMemory.findUnique({
-    where: { conversationId },
-  });
-  return (row?.historyJson as any) ?? [];
+  return conversationById.get(conversationId) ?? [];
 }
 
 export async function appendConversationHistory(
   conversationId: string,
-  customerId: string,
+  _customerId: string,
   messages: Msg[]
 ) {
   const old = await getConversationHistory(conversationId);
   const trimmed = [...old, ...messages].slice(-HISTORY_LIMIT);
-  await prisma.conversationMemory.upsert({
-    where: { conversationId },
-    create: { conversationId, customerId, historyJson: trimmed },
-    update: { historyJson: trimmed },
-  });
+  conversationById.set(conversationId, trimmed);
 }

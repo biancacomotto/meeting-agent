@@ -1,0 +1,23 @@
+# deps
+node_modules
+npm-debug.log
+yarn.lock
+pnpm-lock.yaml
+
+# next
+.next
+.out
+dist
+
+# local env & prisma db
+.env
+.env.*
+prisma/dev.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+
+# misc
+.git
+.gitignore
+Dockerfile
+docker-compose.yml

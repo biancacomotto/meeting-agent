@@ -1,0 +1,60 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Mesa {
+  id        Int           @id @default(autoincrement())
+  numero    Int           @unique
+  capacidad Int
+  reservas  MesaReserva[]
+}
+
+model Reserva {
+  id               Int           @id @default(autoincrement())
+  nombreReserva    String
+  fecha            DateTime
+  cantidadPersonas Int
+  createdAt        DateTime      @default(now())
+  mesas            MesaReserva[]
+}
+
+model MesaReserva {
+  id        Int     @id @default(autoincrement())
+  mesa      Mesa    @relation(fields: [mesaId], references: [id])
+  mesaId    Int
+  reserva   Reserva @relation(fields: [reservaId], references: [id])
+  reservaId Int
+
+  @@unique([mesaId, reservaId])
+}
+
+model CustomerMemory {
+  id         Int                  @id @default(autoincrement())
+  customerId String               @unique
+  stateJson  Json                 @default("{}") // preferencias, último nombre, última intención, etc.
+  updatedAt  DateTime             @updatedAt
+  createdAt  DateTime             @default(now())
+  sessions   ConversationMemory[]
+}
+
+model ConversationMemory {
+  id               Int             @id @default(autoincrement())
+  conversationId   String          @unique
+  customerId       String
+  historyJson      Json            @default("[]") // buffer de turnos [{role, content, ts}]
+  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime        @default(now())
+  CustomerMemory   CustomerMemory? @relation(fields: [customerMemoryId], references: [id])
+  customerMemoryId Int?
+
+  @@index([customerId])
+}

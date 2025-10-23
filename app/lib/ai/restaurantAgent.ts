@@ -3,14 +3,11 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { MemorySaver } from "@langchain/langgraph";
 
-import {
-  appendConversationHistory,
-  getConversationHistory,
-} from "@/app/lib/db/memory/dbMemory";
 import checkAvailability from "./tools/checkAvailability";
 import makeReservation from "./tools/makeReservation";
 import cancelReservation from "./tools/cancelReservation";
 import listReservations from "./tools/listReservations";
+import { HumanMessage } from "langchain";
 
 const checkpointer = new MemorySaver();
 
@@ -36,20 +33,13 @@ const agent = createReactAgent({
 });
 
 export async function restaurantAgent(conversationId: string, message: string) {
-  const history = await getConversationHistory(conversationId);
-
   const result = await agent.invoke(
-    { messages: [{ role: "user", content: message }, ...history] },
+    { messages: [new HumanMessage(message)] },
     { configurable: { thread_id: conversationId } }
   );
 
   const last = result.messages[result.messages.length - 1];
   const reply = last.text;
-
-  await appendConversationHistory(conversationId, conversationId, [
-    { role: "user", content: message, ts: Date.now() },
-    { role: "assistant", content: reply, ts: Date.now() },
-  ]);
 
   return { reply };
 }

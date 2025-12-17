@@ -40,7 +40,22 @@ function cleanJsonResponse(raw: string): string {
   return trimmed;
 }
 
-function normalizeProposal(entry: any): PreciosTaskOutputItem {
+type RawProposal = {
+  productId?: unknown;
+  id?: unknown;
+  name?: unknown;
+  currentPrice?: unknown;
+  newPrice?: unknown;
+  price?: unknown;
+  rationale?: unknown;
+  reason?: unknown;
+  suggestedFrom?: unknown;
+  validFrom?: unknown;
+  suggestedUntil?: unknown;
+  validUntil?: unknown;
+};
+
+function normalizeProposal(entry: RawProposal): PreciosTaskOutputItem {
   const proposal: PreciosTaskOutputItem = {
     productId: String(entry?.productId ?? entry?.id ?? ""),
     name: String(entry?.name ?? ""),
@@ -70,16 +85,18 @@ function normalizeProposal(entry: any): PreciosTaskOutputItem {
 
 function coerceProposals(parsed: unknown): PreciosTaskOutput {
   if (Array.isArray(parsed)) {
-    return parsed.map(normalizeProposal);
+    return parsed.map((p) => normalizeProposal(p as RawProposal));
   }
 
   if (
     parsed &&
     typeof parsed === "object" &&
     "proposals" in parsed &&
-    Array.isArray((parsed as any).proposals)
+    Array.isArray((parsed as { proposals?: unknown }).proposals)
   ) {
-    return (parsed as any).proposals.map(normalizeProposal);
+    return (
+      parsed as { proposals: RawProposal[] }
+    ).proposals.map((p: RawProposal) => normalizeProposal(p));
   }
 
   throw new Error("La respuesta del agente no trae un array de propuestas");
@@ -117,7 +134,7 @@ export async function runPrecios(
   let parsed: unknown;
   try {
     parsed = JSON.parse(cleaned);
-  } catch (err) {
+  } catch {
     throw new Error(
       `No se pudo interpretar la respuesta del agente de precios: ${cleaned}`
     );

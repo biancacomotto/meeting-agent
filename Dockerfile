@@ -33,7 +33,7 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/app/generated ./app/app/generated
 
 # (opcional pero recomendado) regenerar para asegurar binarios musl correctos
-RUN npx prisma generate
+# RUN npx prisma generate
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

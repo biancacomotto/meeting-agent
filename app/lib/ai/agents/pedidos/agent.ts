@@ -80,40 +80,40 @@ const coerceItems = (
     original.map((item) => [item.name.trim().toLowerCase(), item])
   );
 
-  const normalized = responseItems
-    .map((entry: unknown) => {
-      if (!entry || typeof entry !== "object") return null;
-      const candidate = entry as {
-        id?: unknown;
-        name?: unknown;
-        quantity?: unknown;
-        notes?: unknown;
-      };
+  const normalized: PedidoItem[] = [];
 
-      const name = String(candidate.name ?? "").trim();
-      if (!name) return null;
+  for (const entry of responseItems) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as {
+      id?: unknown;
+      name?: unknown;
+      quantity?: unknown;
+      notes?: unknown;
+    };
 
-      const base = originalByName.get(name.toLowerCase());
-      const quantityCandidate = candidate.quantity;
-      const quantity =
-        typeof quantityCandidate === "number" && quantityCandidate > 0
-          ? Math.round(quantityCandidate)
-          : base?.quantity ?? 1;
+    const name = String(candidate.name ?? "").trim();
+    if (!name) continue;
 
-      const notesCandidate = candidate.notes ?? base?.notes;
-      const idCandidate = candidate.id ?? base?.id;
+    const base = originalByName.get(name.toLowerCase());
+    const quantityCandidate = candidate.quantity;
+    const quantity =
+      typeof quantityCandidate === "number" && quantityCandidate > 0
+        ? Math.round(quantityCandidate)
+        : base?.quantity ?? 1;
 
-      return {
-        id: idCandidate ? String(idCandidate) : undefined,
-        name,
-        quantity,
-        notes:
-          typeof notesCandidate === "string" && notesCandidate.trim().length > 0
-            ? notesCandidate
-            : undefined,
-      } satisfies PedidoItem;
-    })
-    .filter((v): v is PedidoItem => !!v);
+    const notesCandidate = candidate.notes ?? base?.notes;
+    const idCandidate = candidate.id ?? base?.id;
+
+    normalized.push({
+      id: idCandidate ? String(idCandidate) : undefined,
+      name,
+      quantity,
+      notes:
+        typeof notesCandidate === "string" && notesCandidate.trim().length > 0
+          ? notesCandidate
+          : undefined,
+    });
+  }
 
   return normalized.length > 0 ? normalized : original;
 };

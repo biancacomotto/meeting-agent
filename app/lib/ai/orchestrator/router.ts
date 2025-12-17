@@ -19,11 +19,11 @@ const routerPrompt = ChatPromptTemplate.fromMessages([
       "Elegi el agente mas adecuado segun el mensaje del cliente.",
       "Solo completa un agente; el resto debe ir en null.",
       "Formato estrictamente JSON, sin texto extra:",
-      '{ "reservas": {...} | null, "pedidos": {...} | null, "precios": {...} | null }',
+      '{{ "reservas": {{...}} | null, "pedidos": {{...}} | null, "precios": {{...}} | null }}',
       "Esquemas esperados:",
-      '- reservas: { conversationId: string, message: string }',
-      '- pedidos: { orderId?: string, address?: string, notes?: string, items: [{ name: string, quantity: number, notes?: string }] }',
-      '- precios: { products: [{ productId: string, name: string, currentPrice: number, currency?: string, cost?: number, demandSignal?: string, competitionPrice?: number, notes?: string }], context?: { costs?: string, demand?: string, competition?: string, notes?: string } }',
+      '- reservas: {{ conversationId: string, message: string }}',
+      '- pedidos: {{ orderId?: string, address?: string, notes?: string, items: [{{ name: string, quantity: number, notes?: string }}] }}',
+      '- precios: {{ products: [{{ productId: string, name: string, currentPrice: number, currency?: string, cost?: number, demandSignal?: string, competitionPrice?: number, notes?: string }}], context?: {{ costs?: string, demand?: string, competition?: string, notes?: string }} }}',
       "Si no hay datos suficientes para un agente, elegi el que mejor encaje pero completa lo minimo con lo que tengas y deja el resto en null.",
     ].join("\n"),
   ],
@@ -74,25 +74,23 @@ const normalizePedidos = (
   const candidate = parsed as Record<string, unknown>;
 
   const itemsRaw = Array.isArray(candidate.items) ? candidate.items : [];
-  const items: PedidoItem[] =
-    itemsRaw.length > 0
-      ? itemsRaw
-          .map((it: unknown) => {
-            if (!it || typeof it !== "object" || !("name" in it)) return null;
-            const typed = it as Record<string, unknown>;
-            const quantity =
-              typeof typed.quantity === "number" && typed.quantity > 0
-                ? Math.round(typed.quantity)
-                : 1;
-            return {
-              id: typed.id ? String(typed.id) : undefined,
-              name: String(typed.name),
-              quantity,
-              notes: typed.notes ? String(typed.notes) : undefined,
-            };
-          })
-          .filter((v): v is PedidoItem => !!v)
-      : [];
+  const items: PedidoItem[] = [];
+  if (itemsRaw.length > 0) {
+    for (const it of itemsRaw) {
+      if (!it || typeof it !== "object" || !("name" in it)) continue;
+      const typed = it as Record<string, unknown>;
+      const quantity =
+        typeof typed.quantity === "number" && typed.quantity > 0
+          ? Math.round(typed.quantity)
+          : 1;
+      items.push({
+        id: typed.id ? String(typed.id) : undefined,
+        name: String(typed.name),
+        quantity,
+        notes: typed.notes ? String(typed.notes) : undefined,
+      });
+    }
+  }
 
   if (items.length === 0) return undefined;
 

@@ -177,7 +177,9 @@ const runWithTools = async (
       }
 
       try {
-        const toolResult = await tool.invoke(toolArgs);
+        const toolResult = await (tool as {
+          invoke: (input: Record<string, unknown>) => Promise<unknown>;
+        }).invoke(toolArgs);
         messages.push(
           new ToolMessage({
             tool_call_id: call.id,

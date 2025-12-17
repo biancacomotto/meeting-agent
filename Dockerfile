@@ -30,7 +30,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 
 # 🔑 IMPORTANTE: copiá el client generado en tu ruta custom
-COPY --from=builder /app/app/generated ./app/app/generated
+# COPY --from=builder /app/app/generated ./app/app/generated
 
 # (opcional pero recomendado) regenerar para asegurar binarios musl correctos
 # RUN npx prisma generate

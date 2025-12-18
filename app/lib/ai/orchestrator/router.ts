@@ -91,7 +91,7 @@ const preciosTool = tool(
 
 const routerModel = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
-  model: "gemini-2.5-flash",
+  model: "gemini-3-flash-preview",
   temperature: 0.2,
 });
 

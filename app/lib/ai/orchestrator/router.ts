@@ -167,23 +167,14 @@ export async function routeToTasks(
   conversationId: string,
   message: string
 ): Promise<OrchestratorInput> {
-  const initial = [
-    {
-      role: "system",
-      content: routerPrompt,
-    },
-    {
-      role: "human",
-      content: [
-        `ID conversacion: ${conversationId}`,
-        "Mensaje del cliente:",
-        message,
-      ].join("\n"),
-    },
-  ];
+  const userMessage = [
+    `ID conversacion: ${conversationId}`,
+    "Mensaje del cliente:",
+    message,
+  ].join("\n");
 
   const result = await routerAgent.invoke({
-    messages: initial,
+    messages: [{ role: "human", content: userMessage }],
   });
 
   // Prefer the structuredResponse when available.

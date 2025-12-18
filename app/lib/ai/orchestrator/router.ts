@@ -32,6 +32,9 @@ const routerModel = new ChatGoogleGenerativeAI({
   temperature: 0.2,
 });
 
+// Reusamos un checkpointer para que el nodo Agent conserve memoria por conversacion
+const routerCheckpointer = new MemorySaver();
+
 const supervisorPrompt = [
   "Sos el nodo Agent principal de un flujo estilo n8n.",
   "Tenes tres Agent Tools: reservas, pedidos y precios. Elegi solo el que aplica y pasale los datos justos.",
@@ -65,22 +68,29 @@ type AgentToolNodeConfig<TInput, TOutput> = {
   toolName: string;
   description: string;
   schema: z.ZodTypeAny;
-  normalize: (input: unknown) => TInput;
+  normalize: (input: unknown, conversationId?: string) => TInput;
   run: (input: TInput) => Promise<TOutput>;
   format: (output?: TOutput) => string | null;
   fallback: string;
 };
 
-const sanitizeReservasInput = (input: unknown): ReservasTaskInput => {
+const sanitizeReservasInput = (
+  input: unknown,
+  conversationId?: string
+): ReservasTaskInput => {
   const typed = (input as { conversationId?: string; message?: string }) ?? {};
   return {
-    conversationId: typed.conversationId ?? "sin-id",
+    conversationId: typed.conversationId ?? conversationId ?? "sin-id",
     message: (typed.message ?? "").trim(),
   };
 };
 
-const sanitizePedidosInput = (input: unknown): PedidosTaskInput => {
+const sanitizePedidosInput = (
+  input: unknown,
+  conversationId?: string
+): PedidosTaskInput => {
   const typed = (input as {
+    conversationId?: string;
     orderId?: string;
     address?: string;
     notes?: string;
@@ -93,6 +103,7 @@ const sanitizePedidosInput = (input: unknown): PedidosTaskInput => {
   }) ?? { items: [] };
 
   return {
+    conversationId: typed.conversationId ?? conversationId,
     orderId: typed.orderId,
     address: typed.address,
     notes: typed.notes,
@@ -107,8 +118,12 @@ const sanitizePedidosInput = (input: unknown): PedidosTaskInput => {
   };
 };
 
-const sanitizePreciosInput = (input: unknown): PreciosTaskInput => {
+const sanitizePreciosInput = (
+  input: unknown,
+  conversationId?: string
+): PreciosTaskInput => {
   const typed = (input as {
+    conversationId?: string;
     context?: PreciosTaskInput["context"];
     products?: Array<{
       productId?: string;
@@ -123,6 +138,7 @@ const sanitizePreciosInput = (input: unknown): PreciosTaskInput => {
   }) ?? { products: [] };
 
   return {
+    conversationId: typed.conversationId ?? conversationId,
     context: typed.context,
     products:
       typed.products?.map((p) => ({
@@ -158,6 +174,7 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
     toolName: "pedidos_agent",
     description: "Agent Tool: confirma pedidos, cantidades y direccion de entrega.",
     schema: z.object({
+      conversationId: z.string().optional(),
       orderId: z.string().optional(),
       address: z.string().optional(),
       notes: z.string().optional(),
@@ -183,6 +200,7 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
     toolName: "precios_agent",
     description: "Agent Tool: calcula ajustes de precios para productos.",
     schema: z.object({
+      conversationId: z.string().optional(),
       context: z
         .object({
           costs: z.string().optional(),
@@ -214,7 +232,10 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
   },
 ];
 
-const buildSubAgentTools = (onUse: (task: TaskName) => void) =>
+const buildSubAgentTools = (
+  onUse: (task: TaskName) => void,
+  conversationId: string
+) =>
   agentToolNodes.map(
     (node) =>
       new DynamicStructuredTool({
@@ -223,7 +244,7 @@ const buildSubAgentTools = (onUse: (task: TaskName) => void) =>
         schema: node.schema,
         func: async (rawInput) => {
           onUse(node.task);
-          const payload = node.normalize(rawInput);
+          const payload = node.normalize(rawInput, conversationId);
           const result = await (node.run as (input: unknown) => Promise<unknown>)(
             payload
           );
@@ -241,14 +262,12 @@ export async function orchestrateWithSubAgents(
   messages: BaseMessage[];
 }> {
   const usedAgents: TaskName[] = [];
-  const tools = buildSubAgentTools((task) => usedAgents.push(task));
-
-  const checkpointer = new MemorySaver();
+  const tools = buildSubAgentTools((task) => usedAgents.push(task), conversationId);
 
   const agent = createReactAgent({
     llm: routerModel,
     tools,
-    checkpointer,
+    checkpointer: routerCheckpointer,
   });
 
   const state = await agent.invoke(

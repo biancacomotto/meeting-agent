@@ -22,6 +22,7 @@ export type PedidoItem = {
 };
 
 export type PedidosTaskInput = {
+  conversationId?: string;
   orderId?: string;
   items: PedidoItem[];
   address?: string;
@@ -55,6 +56,7 @@ export type PreciosContext = {
 };
 
 export type PreciosTaskInput = {
+  conversationId?: string;
   products: PrecioProducto[];
   context?: PreciosContext;
 };

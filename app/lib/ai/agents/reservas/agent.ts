@@ -13,6 +13,7 @@ import {
   ReservasTaskInput,
   ReservasTaskOutput,
 } from "@/app/lib/ai/orchestrator/types";
+import { formatReservasResponse } from "@/app/lib/ai/orchestrator/format";
 
 const reservasTools = [
   checkAvailability,
@@ -27,10 +28,13 @@ const model = new ChatGoogleGenerativeAI({
   temperature: 0.3,
 });
 
+// Memoria compartida para hilos de reservas
+const reservasCheckpointer = new MemorySaver();
+
 const agent = createReactAgent({
   llm: model,
   tools: reservasTools,
-  checkpointer: new MemorySaver(),
+  checkpointer: reservasCheckpointer,
 });
 
 const extractText = (message?: BaseMessage): string => {
@@ -51,6 +55,17 @@ const extractText = (message?: BaseMessage): string => {
       .join("\n");
   }
   return "";
+};
+
+const looksLikeJson = (value?: string): boolean => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return (
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("[") ||
+    trimmed.startsWith("```") ||
+    /^[{[]/.test(trimmed)
+  );
 };
 
 const coerceStatus = (
@@ -112,7 +127,17 @@ export async function runReservas(
 
     const finalMessage = messages[messages.length - 1];
     const rawText = extractText(finalMessage);
-    const { reply, meta } = splitMetadata(rawText);
+  const { reply, meta } = splitMetadata(rawText);
+
+    const cleanedReply = looksLikeJson(reply) ? "" : reply;
+    const summary = formatReservasResponse({
+      status: meta.status,
+      slot: meta.slot,
+      name: meta.name,
+      partySize: meta.partySize,
+      notes: meta.notes,
+      rawReply: undefined,
+    });
 
     return {
       status: meta.status ?? "alternative",
@@ -121,7 +146,8 @@ export async function runReservas(
       partySize: meta.partySize,
       notes: meta.notes,
       rawReply:
-        reply ||
+        cleanedReply ||
+        summary ||
         "No pude confirmar nada todavia, necesito fecha, horario y cuantas personas son.",
     };
   } catch (err) {

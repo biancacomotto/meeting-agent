@@ -10,7 +10,8 @@ const looksLikeJson = (value?: string): boolean => {
   return (
     trimmed.startsWith("{") ||
     trimmed.startsWith("[") ||
-    trimmed.startsWith("```")
+    trimmed.startsWith("```") ||
+    /^[{[]/.test(trimmed)
   );
 };
 

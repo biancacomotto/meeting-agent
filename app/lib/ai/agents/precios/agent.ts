@@ -1,7 +1,8 @@
 import "server-only";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
+import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { MemorySaver } from "@langchain/langgraph";
 import { priceAgentSystemPrompt } from "./prompt";
 import {
   PreciosTaskInput,
@@ -16,22 +17,32 @@ const model = new ChatGoogleGenerativeAI({
   temperature: 0.2,
 });
 
-const prompt = ChatPromptTemplate.fromMessages([
-  ["system", priceAgentSystemPrompt],
-  [
-    "human",
-    [
-      "Moneda preferida: {currency}",
-      "Contexto de negocio:",
-      "{context}",
-      "Productos a ajustar (JSON):",
-      "{products}",
-    ].join("\n"),
-  ],
-]);
+const preciosCheckpointer = new MemorySaver();
+const preciosAgent = createReactAgent({
+  llm: model,
+  tools: [],
+  checkpointer: preciosCheckpointer,
+});
 
-const outputParser = new StringOutputParser();
-const chain = prompt.pipe(model).pipe(outputParser);
+const extractText = (message?: BaseMessage): string => {
+  if (!message) return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: unknown) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          const val = (part as { text?: unknown }).text;
+          return typeof val === "string" ? val : "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+};
 
 function cleanJsonResponse(raw: string): string {
   const trimmed = raw.trim();
@@ -151,7 +162,28 @@ export async function runPrecios(
   }
 
   const formatted = formatInput(resolvedInput);
-  const raw = await chain.invoke(formatted);
+  const { messages } = await preciosAgent.invoke(
+    {
+      messages: [
+        new SystemMessage(priceAgentSystemPrompt),
+        new HumanMessage(
+          [
+            `Moneda preferida: ${formatted.currency}`,
+            "Contexto de negocio:",
+            formatted.context,
+            "Productos a ajustar (JSON):",
+            formatted.products,
+          ].join("\n")
+        ),
+      ],
+    },
+    {
+      configurable: {
+        thread_id: input.conversationId ?? "precios",
+      },
+    }
+  );
+  const raw = extractText(messages[messages.length - 1]);
   const cleaned = cleanJsonResponse(raw);
 
   let parsed: unknown;

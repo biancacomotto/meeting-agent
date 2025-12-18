@@ -1,8 +1,9 @@
 import "server-only";
 
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
+import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { MemorySaver } from "@langchain/langgraph";
 import { pedidosSystemPrompt } from "./prompt";
 import {
   PedidosTaskInput,
@@ -18,25 +19,32 @@ const model = new ChatGoogleGenerativeAI({
   temperature: 0.2,
 });
 
-const prompt = ChatPromptTemplate.fromMessages([
-  ["system", pedidosSystemPrompt],
-  [
-    "human",
-    [
-      "Datos del pedido:",
-      "ID: {orderId}",
-      "Direccion: {address}",
-      "Notas: {notes}",
-      "Items (JSON):",
-      "{items}",
-      "",
-      "Recordatorio: responde solo el JSON solicitado.",
-    ].join("\n"),
-  ],
-]);
+const pedidosCheckpointer = new MemorySaver();
+const pedidosAgent = createReactAgent({
+  llm: model,
+  tools: [],
+  checkpointer: pedidosCheckpointer,
+});
 
-const outputParser = new StringOutputParser();
-const chain = prompt.pipe(model).pipe(outputParser);
+const extractText = (message?: BaseMessage): string => {
+  if (!message) return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: unknown) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          const val = (part as { text?: unknown }).text;
+          return typeof val === "string" ? val : "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+};
 
 const cleanJsonResponse = (raw: string): string => {
   const trimmed = raw.trim();
@@ -201,7 +209,31 @@ export async function runPedidos(
   try {
     const catalog = await productRepository.list();
     const formatted = formatInput(input);
-    const raw = await chain.invoke(formatted);
+    const { messages } = await pedidosAgent.invoke(
+      {
+        messages: [
+          new SystemMessage(pedidosSystemPrompt),
+          new HumanMessage(
+            [
+              "Datos del pedido:",
+              `ID: ${formatted.orderId}`,
+              `Direccion: ${formatted.address}`,
+              `Notas: ${formatted.notes}`,
+              "Items (JSON):",
+              formatted.items,
+              "",
+              "Recordatorio: responde solo el JSON solicitado.",
+            ].join("\n")
+          ),
+        ],
+      },
+      {
+        configurable: {
+          thread_id: input.conversationId ?? input.orderId ?? "pedidos",
+        },
+      }
+    );
+    const raw = extractText(messages[messages.length - 1]);
     const cleaned = cleanJsonResponse(raw);
 
     let parsed: unknown;

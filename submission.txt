@@ -1,0 +1,7 @@
+Repositorio: <pegar_link_github>
+Deploy: <pegar_link_railway>
+Presentacion (Loom): <pegar_link_loom>
+
+Notas:
+- El README explica arquitectura, evaluacion y deploy.
+- El endpoint /api/ai/eval permite comparar resultados entre versiones.

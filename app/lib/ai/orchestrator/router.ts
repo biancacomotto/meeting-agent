@@ -25,6 +25,7 @@ import {
   formatReservasResponse,
 } from "@/app/lib/ai/orchestrator/format";
 import { MemorySaver } from "@langchain/langgraph";
+import { retrieveContext } from "@/app/lib/ai/knowledge/retriever";
 
 const routerModel = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
@@ -276,12 +277,20 @@ export async function orchestrateWithSubAgents(
   if (shouldIncludeSystem) {
     baseMessages.push(new SystemMessage(supervisorPrompt));
   }
+  const contextSnippets = retrieveContext(message);
+  const contextText = contextSnippets.length
+    ? [
+        "Contexto util (base interna):",
+        ...contextSnippets.map((doc) => `- ${doc.title}: ${doc.text}`),
+      ].join("\n")
+    : "Contexto util (base interna): sin datos relevantes.";
   baseMessages.push(
     new HumanMessage(
       [
         `conversation_id: ${conversationId}`,
         "Flujo: este nodo Agent decide y llama a un unico Agent Tool segun el pedido.",
         "Devolveme solo la respuesta final, en texto llano.",
+        contextText,
         "Mensaje del cliente:",
         message,
       ].join("\n")

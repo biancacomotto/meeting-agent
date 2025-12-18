@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Meeting Agent - Restaurante multiagente
 
-## Getting Started
+Sistema de agentes para un restaurante que resuelve reservas, pedidos y ajustes de precios. El flujo sigue un estilo n8n: un Agent principal decide y llama a Agent Tools especializados. Incluye memoria por conversacion y un modulo RAG liviano con una base interna.
 
-First, run the development server:
+## Problema a resolver
+Clientes preguntan y piden cosas variadas (reservas, pedidos, precios, horarios, pagos). Un solo agente lineal es fragil. El objetivo es enrutar cada mensaje al agente correcto y responder de forma natural, con memoria y contexto.
 
+## Criterio de exito
+- Respuestas en espanol rioplatense, sin JSON en pantalla.
+- Seleccion correcta del subagente (reservas/pedidos/precios).
+- Memoria por conversacion (no perder datos entre turnos).
+- Uso de conocimiento interno (horarios, menu, politicas).
+- Capaz de operar con datos incompletos, preguntando lo minimo.
+
+## Arquitectura
+**Nodo Agent (router)** -> **Agent Tools**:
+- Reservas: disponibilidad, confirmacion y alternativas.
+- Pedidos: confirmacion de items y direccion.
+- Precios: sugerencias de ajustes con contexto.
+
+Extension aplicada:
+- **RAG liviano**: `app/lib/ai/knowledge` contiene documentos internos. Se recupera contexto relevante por overlap de tokens y se inyecta al router.
+- **Memoria por conversacion**: `MemorySaver` en router y agentes, con `thread_id` por conversacion.
+- **Multiagentes**: enrutamiento y herramientas especializadas.
+
+## Endpoints
+- `POST /api/ai/ask` (chat principal)
+  - Body: `{ "conversation_id": "id", "message": "texto" }`
+- `POST /api/ai/eval` (evaluacion)
+  - Body opcional: `{ "cases": [...] }`
+  - Sin body usa casos en `app/lib/ai/eval/cases.ts`
+
+## Evaluacion
+La evaluacion corre casos deterministas con reglas simples:
+- agente esperado
+- no mostrar JSON
+- preguntar cuando falta info
+- incluir palabras clave
+
+Ver `app/lib/ai/eval`.
+
+Ejemplo:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+curl -s -X POST http://localhost:3000/api/ai/eval | jq
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
+```bash
+npm install
+npm run dev
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Variables de entorno:
+```
+GOOGLE_API_KEY=...
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploy (Railway)
+1. Crear proyecto en Railway y conectar repo de GitHub.
+2. Agregar variable `GOOGLE_API_KEY`.
+3. Railway detecta Next.js automaticamente.
 
-## Learn More
+## Archivos clave
+- Router: `app/lib/ai/orchestrator/router.ts`
+- Agentes: `app/lib/ai/agents/*/agent.ts`
+- RAG: `app/lib/ai/knowledge/*`
+- Evaluacion: `app/lib/ai/eval/*`
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notas de diseno
+- El router solo envia system prompt en el primer turno por conversacion.
+- Los agentes nunca devuelven JSON al usuario final.

@@ -23,6 +23,7 @@ const preciosAgent = createReactAgent({
   tools: [],
   checkpointer: preciosCheckpointer,
 });
+const preciosThreads = new Set<string>();
 
 const extractText = (message?: BaseMessage): string => {
   if (!message) return "";
@@ -162,10 +163,13 @@ export async function runPrecios(
   }
 
   const formatted = formatInput(resolvedInput);
+  const threadId = input.conversationId ?? "precios";
   const { messages } = await preciosAgent.invoke(
     {
       messages: [
-        new SystemMessage(priceAgentSystemPrompt),
+        ...(preciosThreads.has(threadId)
+          ? []
+          : [new SystemMessage(priceAgentSystemPrompt)]),
         new HumanMessage(
           [
             `Moneda preferida: ${formatted.currency}`,
@@ -179,10 +183,11 @@ export async function runPrecios(
     },
     {
       configurable: {
-        thread_id: input.conversationId ?? "precios",
+        thread_id: threadId,
       },
     }
   );
+  preciosThreads.add(threadId);
   const raw = extractText(messages[messages.length - 1]);
   const cleaned = cleanJsonResponse(raw);
 

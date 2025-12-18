@@ -25,6 +25,7 @@ const pedidosAgent = createReactAgent({
   tools: [],
   checkpointer: pedidosCheckpointer,
 });
+const pedidosThreads = new Set<string>();
 
 const extractText = (message?: BaseMessage): string => {
   if (!message) return "";
@@ -209,10 +210,13 @@ export async function runPedidos(
   try {
     const catalog = await productRepository.list();
     const formatted = formatInput(input);
+    const threadId = input.conversationId ?? input.orderId ?? "pedidos";
     const { messages } = await pedidosAgent.invoke(
       {
         messages: [
-          new SystemMessage(pedidosSystemPrompt),
+          ...(pedidosThreads.has(threadId)
+            ? []
+            : [new SystemMessage(pedidosSystemPrompt)]),
           new HumanMessage(
             [
               "Datos del pedido:",
@@ -229,10 +233,11 @@ export async function runPedidos(
       },
       {
         configurable: {
-          thread_id: input.conversationId ?? input.orderId ?? "pedidos",
+          thread_id: threadId,
         },
       }
     );
+    pedidosThreads.add(threadId);
     const raw = extractText(messages[messages.length - 1]);
     const cleaned = cleanJsonResponse(raw);
 

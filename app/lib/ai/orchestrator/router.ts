@@ -34,6 +34,7 @@ const routerModel = new ChatGoogleGenerativeAI({
 
 // Reusamos un checkpointer para que el nodo Agent conserve memoria por conversacion
 const routerCheckpointer = new MemorySaver();
+const routerThreads = new Set<string>();
 
 const supervisorPrompt = [
   "Sos el nodo Agent principal de un flujo estilo n8n.",
@@ -270,23 +271,30 @@ export async function orchestrateWithSubAgents(
     checkpointer: routerCheckpointer,
   });
 
+  const shouldIncludeSystem = !routerThreads.has(conversationId);
+  const baseMessages: BaseMessage[] = [];
+  if (shouldIncludeSystem) {
+    baseMessages.push(new SystemMessage(supervisorPrompt));
+  }
+  baseMessages.push(
+    new HumanMessage(
+      [
+        `conversation_id: ${conversationId}`,
+        "Flujo: este nodo Agent decide y llama a un unico Agent Tool segun el pedido.",
+        "Devolveme solo la respuesta final, en texto llano.",
+        "Mensaje del cliente:",
+        message,
+      ].join("\n")
+    )
+  );
+
   const state = await agent.invoke(
     {
-      messages: [
-        new SystemMessage(supervisorPrompt),
-        new HumanMessage(
-          [
-            `conversation_id: ${conversationId}`,
-            "Flujo: este nodo Agent decide y llama a un unico Agent Tool segun el pedido.",
-            "Devolveme solo la respuesta final, en texto llano.",
-            "Mensaje del cliente:",
-            message,
-          ].join("\n")
-        ),
-      ],
+      messages: baseMessages,
     },
     { configurable: { thread_id: conversationId } }
   );
+  routerThreads.add(conversationId);
 
   const finalMessage = state.messages[state.messages.length - 1];
   const content =

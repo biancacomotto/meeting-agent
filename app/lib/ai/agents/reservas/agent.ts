@@ -30,6 +30,7 @@ const model = new ChatGoogleGenerativeAI({
 
 // Memoria compartida para hilos de reservas
 const reservasCheckpointer = new MemorySaver();
+const reservasThreads = new Set<string>();
 
 const agent = createReactAgent({
   llm: model,
@@ -111,7 +112,12 @@ const buildMessages = (input: ReservasTaskInput): BaseMessage[] => {
     "Usa las herramientas si sirven y hablale al cliente sin mostrar JSON.",
   ].join("\n");
 
-  return [new SystemMessage(reservasPrompt), new HumanMessage(humanContent)];
+  const messages: BaseMessage[] = [];
+  if (!reservasThreads.has(input.conversationId)) {
+    messages.push(new SystemMessage(reservasPrompt));
+  }
+  messages.push(new HumanMessage(humanContent));
+  return messages;
 };
 
 export async function runReservas(
@@ -124,6 +130,7 @@ export async function runReservas(
       },
       { configurable: { thread_id: input.conversationId } }
     );
+    reservasThreads.add(input.conversationId);
 
     const finalMessage = messages[messages.length - 1];
     const rawText = extractText(finalMessage);

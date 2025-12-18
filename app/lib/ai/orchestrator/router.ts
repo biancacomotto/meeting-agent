@@ -3,6 +3,7 @@ import "server-only";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
+import { HumanMessage } from "@langchain/core/messages";
 import z from "zod";
 import {
   OrchestratorInput,
@@ -159,8 +160,6 @@ const routerAgent = createReactAgent({
   tools: [reservasTool, pedidosTool, preciosTool],
   prompt: routerPrompt,
   responseFormat: orchestratorSchema,
-  name: "router",
-  description: "Despacha la petición al agente correcto.",
 });
 
 export async function routeToTasks(
@@ -174,7 +173,7 @@ export async function routeToTasks(
   ].join("\n");
 
   const result = await routerAgent.invoke({
-    messages: [{ role: "human", content: userMessage }],
+    messages: [new HumanMessage(userMessage)],
   });
 
   // Prefer the structuredResponse when available.

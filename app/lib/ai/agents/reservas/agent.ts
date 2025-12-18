@@ -1,13 +1,9 @@
 import "server-only";
 
-import {
-  AIMessage,
-  BaseMessage,
-  HumanMessage,
-  SystemMessage,
-  ToolMessage,
-} from "@langchain/core/messages";
+import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { MemorySaver } from "@langchain/langgraph";
 import cancelReservation from "@/app/lib/ai/tools/cancelReservation";
 import checkAvailability from "@/app/lib/ai/tools/checkAvailability";
 import listReservations from "@/app/lib/ai/tools/listReservations";
@@ -25,17 +21,20 @@ const reservasTools = [
   cancelReservation,
 ];
 
-const toolsByName = Object.fromEntries(
-  reservasTools.map((tool) => [tool.name, tool])
-);
-
 const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
   model: "gemini-2.5-flash",
   temperature: 0.3,
-}).bindTools(reservasTools);
+});
 
-const extractText = (message: BaseMessage): string => {
+const agent = createReactAgent({
+  llm: model,
+  tools: reservasTools,
+  checkpointer: new MemorySaver(),
+});
+
+const extractText = (message?: BaseMessage): string => {
+  if (!message) return "";
   const content = (message as { content?: unknown }).content;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -54,75 +53,38 @@ const extractText = (message: BaseMessage): string => {
   return "";
 };
 
-const cleanJsonResponse = (raw: string): string => {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("```")) {
-    return trimmed.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
-  }
-  return trimmed;
-};
-
-const tryParseJson = (raw: string): unknown | null => {
-  try {
-    return JSON.parse(cleanJsonResponse(raw));
-  } catch {
-    return null;
-  }
-};
-
 const coerceStatus = (
   value: unknown
 ): ReservasTaskOutput["status"] | undefined => {
-  if (value === "confirmed" || value === "alternative" || value === "unavailable")
+  if (value === "confirmed" || value === "alternative" || value === "unavailable") {
     return value;
+  }
   return undefined;
 };
 
-const normalizeOutput = (
-  parsed: unknown,
-  rawReply: string
-): ReservasTaskOutput => {
-  const output: ReservasTaskOutput = {
-    rawReply,
-  };
+const splitMetadata = (
+  fullText: string
+): { reply: string; meta: Partial<ReservasTaskOutput> } => {
+  const match = fullText.match(/METADATA:\s*(\{.*\})/i);
+  if (!match) return { reply: fullText.trim(), meta: {} };
 
-  if (!parsed || typeof parsed !== "object") {
-    return output;
+  let meta: Partial<ReservasTaskOutput> = {};
+  try {
+    const parsed = JSON.parse(match[1]);
+    const status = coerceStatus(parsed.status);
+    meta = {
+      status,
+      slot: parsed.slot,
+      name: parsed.name,
+      partySize: parsed.partySize,
+      notes: parsed.notes,
+    };
+  } catch {
+    meta = {};
   }
 
-  const candidate = parsed as Record<string, unknown>;
-
-  const status = coerceStatus(candidate.status);
-  if (status) output.status = status;
-
-  if (candidate.slot || candidate.time || candidate.datetime) {
-    output.slot = String(candidate.slot ?? candidate.time ?? candidate.datetime);
-  }
-
-  if (candidate.name || candidate.customerName || candidate.guestName) {
-    output.name = String(
-      candidate.name ?? candidate.customerName ?? candidate.guestName
-    );
-  }
-
-  const sizeCandidate =
-    candidate.partySize ??
-    candidate.people ??
-    candidate.guests ??
-    candidate.quantity;
-  if (typeof sizeCandidate === "number" && sizeCandidate > 0) {
-    output.partySize = Math.round(sizeCandidate);
-  }
-
-  if (candidate.notes || candidate.reason || candidate.message) {
-    output.notes = String(candidate.notes ?? candidate.reason ?? candidate.message);
-  }
-
-  if (!output.status && rawReply.toLowerCase().includes("no hay")) {
-    output.status = "unavailable";
-  }
-
-  return output;
+  const reply = fullText.replace(match[0], "").trim();
+  return { reply, meta };
 };
 
 const buildMessages = (input: ReservasTaskInput): BaseMessage[] => {
@@ -131,101 +93,41 @@ const buildMessages = (input: ReservasTaskInput): BaseMessage[] => {
     "Mensaje del cliente:",
     input.message,
     "",
-    'Devuelve siempre un JSON final con este esquema: {"status":"confirmed|alternative|unavailable","slot":string?,"name":string?,"partySize":number?,"notes":string?}.',
+    "Usa las herramientas si sirven y hablale al cliente sin mostrar JSON.",
   ].join("\n");
 
   return [new SystemMessage(reservasPrompt), new HumanMessage(humanContent)];
-};
-
-const runWithTools = async (
-  input: ReservasTaskInput
-): Promise<AIMessage> => {
-  const messages: BaseMessage[] = buildMessages(input);
-  let lastAI: AIMessage | null = null;
-
-  for (let step = 0; step < 4; step++) {
-    const aiMessage = await model.invoke(messages);
-    lastAI = aiMessage;
-    messages.push(aiMessage);
-
-    const toolCalls =
-      (aiMessage as AIMessage & {
-        tool_calls?: Array<{
-          id: string;
-          name: string;
-          args?: unknown;
-          input?: unknown;
-        }>;
-      }).tool_calls ?? [];
-    if (!toolCalls.length) break;
-
-    for (const call of toolCalls) {
-      const tool = toolsByName[call.name];
-      const toolArgs =
-        (call.args as Record<string, unknown> | undefined) ??
-        (call.input as Record<string, unknown> | undefined) ??
-        {};
-
-      if (!tool) {
-        messages.push(
-          new ToolMessage({
-            tool_call_id: call.id,
-            content: `Herramienta ${call.name} no disponible`,
-          })
-        );
-        continue;
-      }
-
-      try {
-        const toolResult = await (tool as {
-          invoke: (input: Record<string, unknown>) => Promise<unknown>;
-        }).invoke(toolArgs);
-        messages.push(
-          new ToolMessage({
-            tool_call_id: call.id,
-            content: typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult),
-          })
-        );
-      } catch (err) {
-        messages.push(
-          new ToolMessage({
-            tool_call_id: call.id,
-            content: `Error al ejecutar ${call.name}: ${
-              err instanceof Error ? err.message : "desconocido"
-            }`,
-          })
-        );
-      }
-    }
-  }
-
-  if (!lastAI) {
-    throw new Error("No se obtuvo respuesta del agente de reservas");
-  }
-
-  return lastAI;
 };
 
 export async function runReservas(
   input: ReservasTaskInput
 ): Promise<ReservasTaskOutput> {
   try {
-    const aiMessage = await runWithTools(input);
-    const rawReply = extractText(aiMessage);
-    const parsed = tryParseJson(rawReply);
+    const { messages } = await agent.invoke(
+      {
+        messages: buildMessages(input),
+      },
+      { configurable: { thread_id: input.conversationId } }
+    );
 
-    if (parsed) {
-      return normalizeOutput(parsed, rawReply);
-    }
+    const finalMessage = messages[messages.length - 1];
+    const rawText = extractText(finalMessage);
+    const { reply, meta } = splitMetadata(rawText);
 
     return {
-      status: "unavailable",
-      rawReply: rawReply || "No se pudo interpretar la respuesta del agente.",
+      status: meta.status ?? "alternative",
+      slot: meta.slot,
+      name: meta.name,
+      partySize: meta.partySize,
+      notes: meta.notes,
+      rawReply:
+        reply ||
+        "No pude confirmar nada todavia, necesito fecha, horario y cuantas personas son.",
     };
   } catch (err) {
     return {
       status: "unavailable",
-      rawReply: `Error al gestionar reserva: ${
+      rawReply: `Hubo un problema gestionando la reserva: ${
         err instanceof Error ? err.message : "desconocido"
       }`,
     };

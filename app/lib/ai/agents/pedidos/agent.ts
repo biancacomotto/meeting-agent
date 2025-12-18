@@ -9,6 +9,8 @@ import {
   PedidosTaskOutput,
   PedidoItem,
 } from "@/app/lib/ai/orchestrator/types";
+import { productRepository } from "@/app/lib/db/repositories/productRepository";
+import { pedidoRepository } from "@/app/lib/db/repositories/pedidoRepository";
 
 const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
@@ -70,19 +72,37 @@ const normalizeIssues = (issues: unknown): string[] => {
   return [];
 };
 
+type CatalogProduct = Awaited<ReturnType<typeof productRepository.list>>[number];
+
+const slugifyId = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const findProductMatch = (name: string, catalog: CatalogProduct[]) => {
+  const normalized = name.trim().toLowerCase();
+  return (
+    catalog.find(
+      (p) =>
+        p.id.toLowerCase() === normalized ||
+        p.name.toLowerCase() === normalized ||
+        p.name.toLowerCase().includes(normalized)
+    ) ?? null
+  );
+};
+
 const coerceItems = (
   responseItems: unknown,
-  original: PedidoItem[]
+  original: PedidoItem[],
+  catalog: CatalogProduct[]
 ): PedidoItem[] => {
-  if (!Array.isArray(responseItems)) return original;
-
-  const originalByName = new Map(
-    original.map((item) => [item.name.trim().toLowerCase(), item])
-  );
+  const baseItems = Array.isArray(responseItems) ? responseItems : original;
 
   const normalized: PedidoItem[] = [];
 
-  for (const entry of responseItems) {
+  for (const entry of baseItems) {
     if (!entry || typeof entry !== "object") continue;
     const candidate = entry as {
       id?: unknown;
@@ -94,7 +114,11 @@ const coerceItems = (
     const name = String(candidate.name ?? "").trim();
     if (!name) continue;
 
-    const base = originalByName.get(name.toLowerCase());
+    const base = original.find(
+      (item) => item.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    const catalogMatch = findProductMatch(name, catalog);
+
     const quantityCandidate = candidate.quantity;
     const quantity =
       typeof quantityCandidate === "number" && quantityCandidate > 0
@@ -102,10 +126,10 @@ const coerceItems = (
         : base?.quantity ?? 1;
 
     const notesCandidate = candidate.notes ?? base?.notes;
-    const idCandidate = candidate.id ?? base?.id;
+    const idCandidate = candidate.id ?? catalogMatch?.id ?? base?.id;
 
     normalized.push({
-      id: idCandidate ? String(idCandidate) : undefined,
+      id: idCandidate ? String(idCandidate) : slugifyId(name),
       name,
       quantity,
       notes:
@@ -123,6 +147,47 @@ const coerceStatus = (value: unknown): PedidosTaskOutput["status"] => {
   return "needs_clarification";
 };
 
+const persistOrder = async (params: {
+  input: PedidosTaskInput;
+  items: PedidoItem[];
+  eta?: number;
+  status: PedidosTaskOutput["status"];
+  catalog: CatalogProduct[];
+}) => {
+  if (params.status !== "received") return null;
+
+  const itemsForOrder = params.items.map((item) => {
+    const match = findProductMatch(item.name, params.catalog);
+    return {
+      productId: match?.id ?? item.id ?? slugifyId(item.name),
+      name: match?.name ?? item.name,
+      quantity: item.quantity,
+      notes: item.notes,
+    };
+  });
+
+  if (params.input.orderId) {
+    const existing = await pedidoRepository.getById(params.input.orderId);
+    if (existing) {
+      await pedidoRepository.updateStatus(
+        params.input.orderId,
+        "received",
+        params.eta
+      );
+      return params.input.orderId;
+    }
+  }
+
+  const created = await pedidoRepository.create({
+    address: params.input.address ?? "Retiro en local",
+    items: itemsForOrder,
+    notes: params.input.notes,
+    etaMinutes: params.eta,
+  });
+
+  return created.id;
+};
+
 const formatInput = (input: PedidosTaskInput) => ({
   orderId: input.orderId ?? "no provisto",
   address: input.address ?? "no provista",
@@ -134,6 +199,7 @@ export async function runPedidos(
   input: PedidosTaskInput
 ): Promise<PedidosTaskOutput> {
   try {
+    const catalog = await productRepository.list();
     const formatted = formatInput(input);
     const raw = await chain.invoke(formatted);
     const cleaned = cleanJsonResponse(raw);
@@ -158,7 +224,7 @@ export async function runPedidos(
       parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
 
     const status = coerceStatus(parsedObj.status);
-    const items = coerceItems(parsedObj.items, input.items);
+    const items = coerceItems(parsedObj.items, input.items, catalog);
     const issues = normalizeIssues(parsedObj.issues);
 
     const eta =
@@ -185,6 +251,28 @@ export async function runPedidos(
       etaMinutes: status === "received" ? eta : undefined,
       issues: finalIssues,
       confirmationMessage,
+    };
+
+    const savedOrderId = await persistOrder({
+      input,
+      items,
+      eta,
+      status,
+      catalog,
+    });
+
+    const idSuffix = savedOrderId ? ` (pedido #${savedOrderId})` : "";
+
+    return {
+      status,
+      items,
+      etaMinutes: status === "received" ? eta : undefined,
+      issues: finalIssues,
+      confirmationMessage:
+        confirmationMessage ??
+        (status === "received"
+          ? `Listo, tome tu pedido${idSuffix}. Te aviso apenas salga.`
+          : undefined),
     };
   } catch (err) {
     return {

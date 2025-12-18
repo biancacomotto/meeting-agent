@@ -1,28 +1,163 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import "server-only";
 
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
+import {
+  BaseMessage,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages";
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import z from "zod";
-import { OrchestratorInput } from "./types";
+import { runPedidos } from "@/app/lib/ai/agents/pedidos/agent";
+import { runPrecios } from "@/app/lib/ai/agents/precios/agent";
+import { runReservas } from "@/app/lib/ai/agents/reservas/agent";
+import {
+  PedidosTaskInput,
+  PreciosTaskInput,
+  ReservasTaskInput,
+  TaskName,
+} from "@/app/lib/ai/orchestrator/types";
+import {
+  formatPedidosResponse,
+  formatPreciosResponse,
+  formatReservasResponse,
+} from "@/app/lib/ai/orchestrator/format";
+import { MemorySaver } from "@langchain/langgraph";
 
 const routerModel = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
-  // Usamos Gemini 3 (preview) pero sin tools, para evitar requisitos de thought_signature.
   model: "gemini-2.5-flash",
   temperature: 0.2,
 });
 
-const orchestratorSchema = z.object({
-  reservas: z
-    .object({
-      conversationId: z.string(),
-      message: z.string(),
-    })
-    .nullable()
-    .optional(),
-  pedidos: z
-    .object({
+const supervisorPrompt = [
+  "Sos el nodo Agent principal de un flujo estilo n8n.",
+  "Tenes tres Agent Tools: reservas, pedidos y precios. Elegi solo el que aplica y pasale los datos justos.",
+  "Responde al cliente en texto simple y canchero (espanol rioplatense), sin JSON ni markdown.",
+  "Si falta informacion, pedila en una sola pregunta concreta antes de accionar.",
+  "No inventes datos: usa solo lo que recibis o lo que puedas inferir con mucha confianza.",
+].join("\n");
+
+const extractText = (message?: BaseMessage): string => {
+  if (!message) return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part: unknown) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object" && "text" in part) {
+          const val = (part as { text?: unknown }).text;
+          return typeof val === "string" ? val : "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+};
+
+type AgentToolNodeConfig<TInput, TOutput> = {
+  task: TaskName;
+  toolName: string;
+  description: string;
+  schema: z.ZodTypeAny;
+  normalize: (input: unknown) => TInput;
+  run: (input: TInput) => Promise<TOutput>;
+  format: (output?: TOutput) => string | null;
+  fallback: string;
+};
+
+const sanitizeReservasInput = (input: unknown): ReservasTaskInput => {
+  const typed = (input as { conversationId?: string; message?: string }) ?? {};
+  return {
+    conversationId: typed.conversationId ?? "sin-id",
+    message: (typed.message ?? "").trim(),
+  };
+};
+
+const sanitizePedidosInput = (input: unknown): PedidosTaskInput => {
+  const typed = (input as {
+    orderId?: string;
+    address?: string;
+    notes?: string;
+    items?: Array<{
+      id?: string;
+      name?: string;
+      quantity?: number;
+      notes?: string;
+    }>;
+  }) ?? { items: [] };
+
+  return {
+    orderId: typed.orderId,
+    address: typed.address,
+    notes: typed.notes,
+    items:
+      typed.items?.map((item) => ({
+        id: item.id,
+        name: (item.name ?? "").trim(),
+        quantity:
+          item.quantity && item.quantity > 0 ? Math.round(item.quantity) : 1,
+        notes: item.notes,
+      })) ?? [],
+  };
+};
+
+const sanitizePreciosInput = (input: unknown): PreciosTaskInput => {
+  const typed = (input as {
+    context?: PreciosTaskInput["context"];
+    products?: Array<{
+      productId?: string;
+      name: string;
+      currentPrice: number;
+      currency?: string;
+      cost?: number;
+      demandSignal?: string;
+      competitionPrice?: number;
+      notes?: string;
+    }>;
+  }) ?? { products: [] };
+
+  return {
+    context: typed.context,
+    products:
+      typed.products?.map((p) => ({
+        productId: p.productId ?? p.name ?? "sin-id",
+        name: p.name,
+        currentPrice: p.currentPrice,
+        currency: p.currency,
+        cost: p.cost,
+        demandSignal: p.demandSignal,
+        competitionPrice: p.competitionPrice,
+        notes: p.notes,
+      })) ?? [],
+  };
+};
+
+const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
+  {
+    task: "reservas",
+    toolName: "reservas_agent",
+    description: "Agent Tool: gestiona reservas y disponibilidad de mesas.",
+    schema: z.object({
+      conversationId: z.string().describe("ID de la conversacion original"),
+      message: z.string().describe("Mensaje completo del cliente para reservar"),
+    }),
+    normalize: sanitizeReservasInput,
+    run: runReservas,
+    format: (output) => formatReservasResponse(output),
+    fallback:
+      "No pude gestionar la reserva con los datos que tengo, podes confirmarlos?",
+  },
+  {
+    task: "pedidos",
+    toolName: "pedidos_agent",
+    description: "Agent Tool: confirma pedidos, cantidades y direccion de entrega.",
+    schema: z.object({
       orderId: z.string().optional(),
       address: z.string().optional(),
       notes: z.string().optional(),
@@ -31,28 +166,23 @@ const orchestratorSchema = z.object({
           z.object({
             id: z.string().optional(),
             name: z.string(),
-            quantity: z.number(),
+            quantity: z.number().optional(),
             notes: z.string().optional(),
           })
         )
         .default([]),
-    })
-    .nullable()
-    .optional(),
-  precios: z
-    .object({
-      products: z.array(
-        z.object({
-          productId: z.string(),
-          name: z.string(),
-          currentPrice: z.number(),
-          currency: z.string().optional(),
-          cost: z.number().optional(),
-          demandSignal: z.string().optional(),
-          competitionPrice: z.number().optional(),
-          notes: z.string().optional(),
-        })
-      ),
+    }),
+    normalize: sanitizePedidosInput,
+    run: runPedidos,
+    format: (output) => formatPedidosResponse(output),
+    fallback:
+      "Recibi el pedido pero necesito confirmar items, cantidades y direccion.",
+  },
+  {
+    task: "precios",
+    toolName: "precios_agent",
+    description: "Agent Tool: calcula ajustes de precios para productos.",
+    schema: z.object({
       context: z
         .object({
           costs: z.string().optional(),
@@ -61,63 +191,88 @@ const orchestratorSchema = z.object({
           notes: z.string().optional(),
         })
         .optional(),
-    })
-    .nullable()
-    .optional(),
-});
+      products: z
+        .array(
+          z.object({
+            productId: z.string().optional(),
+            name: z.string(),
+            currentPrice: z.number(),
+            currency: z.string().optional(),
+            cost: z.number().optional(),
+            demandSignal: z.string().optional(),
+            competitionPrice: z.number().optional(),
+            notes: z.string().optional(),
+          })
+        )
+        .default([]),
+    }),
+    normalize: sanitizePreciosInput,
+    run: runPrecios,
+    format: (output) => formatPreciosResponse(output),
+    fallback:
+      "Necesito al menos un producto con precio actual para sugerir ajustes.",
+  },
+];
 
-const prompt = ChatPromptTemplate.fromMessages([
-  [
-    "system",
-    [
-      "Sos un despachador para un sistema multi-agente (reservas | pedidos | precios).",
-      "Elegí exactamente UN agente y completá su payload JSON; dejá los otros en null.",
-      "Formato estrictamente JSON y valido: {{ \"reservas\": {{...}} | null, \"pedidos\": {{...}} | null, \"precios\": {{...}} | null }}.",
-      "Si faltan datos, dejalos vacíos pero con tipos correctos; no inventes items ni productos.",
-    ].join("\n"),
-  ],
-  [
-    "human",
-    [
-      "ID conversacion: {conversationId}",
-      "Mensaje del cliente:",
-      "{message}",
-    ].join("\n"),
-  ],
-]);
+const buildSubAgentTools = (onUse: (task: TaskName) => void) =>
+  agentToolNodes.map(
+    (node) =>
+      new DynamicStructuredTool({
+        name: node.toolName,
+        description: node.description,
+        schema: node.schema,
+        func: async (rawInput) => {
+          onUse(node.task);
+          const payload = node.normalize(rawInput);
+          const result = await (node.run as (input: unknown) => Promise<unknown>)(
+            payload
+          );
+          return node.format(result) ?? node.fallback;
+        },
+      })
+  );
 
-const chain = prompt.pipe(routerModel).pipe(new StringOutputParser());
-
-const cleanJson = (raw: string): string => {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("```")) {
-    return trimmed.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
-  }
-  return trimmed;
-};
-
-export async function routeToTasks(
+export async function orchestrateWithSubAgents(
   conversationId: string,
   message: string
-): Promise<OrchestratorInput> {
-  try {
-    const raw = await chain.invoke({ conversationId, message });
-    const cleaned = cleanJson(raw);
-    const parsed = JSON.parse(cleaned);
-    const validated = orchestratorSchema.safeParse(parsed);
+): Promise<{
+  content: string;
+  usedAgents: TaskName[];
+  messages: BaseMessage[];
+}> {
+  const usedAgents: TaskName[] = [];
+  const tools = buildSubAgentTools((task) => usedAgents.push(task));
 
-    if (validated.success) {
-      const data = validated.data;
-      return {
-        reservas: data.reservas ?? undefined,
-        pedidos: data.pedidos ?? undefined,
-        precios: data.precios ?? undefined,
-      };
-    }
-  } catch (err) {
-    console.error("[router] parse error", err);
-  }
+  const checkpointer = new MemorySaver();
 
-  // Fallback mínimo: responder con reservas para no quedar en blanco.
-  return { reservas: { conversationId, message } };
+  const agent = createReactAgent({
+    llm: routerModel,
+    tools,
+    checkpointer,
+  });
+
+  const state = await agent.invoke(
+    {
+      messages: [
+        new SystemMessage(supervisorPrompt),
+        new HumanMessage(
+          [
+            `conversation_id: ${conversationId}`,
+            "Flujo: este nodo Agent decide y llama a un unico Agent Tool segun el pedido.",
+            "Devolveme solo la respuesta final, en texto llano.",
+            "Mensaje del cliente:",
+            message,
+          ].join("\n")
+        ),
+      ],
+    },
+    { configurable: { thread_id: conversationId } }
+  );
+
+  const finalMessage = state.messages[state.messages.length - 1];
+  const content =
+    extractText(finalMessage) ||
+    "No pude generar una respuesta en este momento, probemos de nuevo en un instante.";
+
+  return { content, usedAgents, messages: state.messages };
 }

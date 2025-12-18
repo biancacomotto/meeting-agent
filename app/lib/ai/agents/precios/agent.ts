@@ -8,6 +8,7 @@ import {
   PreciosTaskOutput,
   PreciosTaskOutputItem,
 } from "@/app/lib/ai/orchestrator/types";
+import { productRepository } from "@/app/lib/db/repositories/productRepository";
 
 const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
@@ -120,14 +121,36 @@ function formatInput(input: PreciosTaskInput): {
   return { context, products, currency: preferredCurrency };
 }
 
+async function withCatalogFallback(
+  input: PreciosTaskInput
+): Promise<PreciosTaskInput> {
+  if (input.products && input.products.length > 0) return input;
+  const catalog = await productRepository.list();
+
+  return {
+    ...input,
+    products: catalog.map((p) => ({
+      productId: p.id,
+      name: p.name,
+      currentPrice: p.price,
+      currency: p.currency,
+      cost: p.cost,
+      demandSignal: p.demandSignal,
+      competitionPrice: p.competitionPrice,
+      notes: p.notes,
+    })),
+  };
+}
+
 export async function runPrecios(
   input: PreciosTaskInput
 ): Promise<PreciosTaskOutput> {
-  if (!input.products || input.products.length === 0) {
+  const resolvedInput = await withCatalogFallback(input);
+  if (!resolvedInput.products || resolvedInput.products.length === 0) {
     throw new Error("Debes enviar al menos un producto para ajustar precios");
   }
 
-  const formatted = formatInput(input);
+  const formatted = formatInput(resolvedInput);
   const raw = await chain.invoke(formatted);
   const cleaned = cleanJsonResponse(raw);
 

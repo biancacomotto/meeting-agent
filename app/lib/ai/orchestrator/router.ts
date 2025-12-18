@@ -1,41 +1,92 @@
 import "server-only";
 
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { tool } from "@langchain/core/tools";
+import z from "zod";
 import {
   OrchestratorInput,
-  PedidoItem,
   PedidosTaskInput,
   PreciosTaskInput,
-  ReservasTaskInput,
 } from "./types";
 
-const routerPrompt = ChatPromptTemplate.fromMessages([
-  [
-    "system",
-    [
-      "Sos un despachador de pedidos para un sistema multi-agente (reservas | pedidos | precios).",
-      "Elegi el agente mas adecuado segun el mensaje del cliente.",
-      "Solo completa un agente; el resto debe ir en null.",
-      "Formato estrictamente JSON, sin texto extra:",
-      '{{ "reservas": {{...}} | null, "pedidos": {{...}} | null, "precios": {{...}} | null }}',
-      "Esquemas esperados:",
-      '- reservas: {{ conversationId: string, message: string }}',
-      '- pedidos: {{ orderId?: string, address?: string, notes?: string, items: [{{ name: string, quantity: number, notes?: string }}] }}',
-      '- precios: {{ products: [{{ productId: string, name: string, currentPrice: number, currency?: string, cost?: number, demandSignal?: string, competitionPrice?: number, notes?: string }}], context?: {{ costs?: string, demand?: string, competition?: string, notes?: string }} }}',
-      "Si no hay datos suficientes para un agente, elegi el que mejor encaje pero completa lo minimo con lo que tengas y deja el resto en null.",
-    ].join("\n"),
-  ],
-  [
-    "human",
-    [
-      "ID conversacion: {conversationId}",
-      "Mensaje: {message}",
-      "Recordatorio: responde solo el JSON pedido.",
-    ].join("\n"),
-  ],
-]);
+const reservasTool = tool(
+  async ({ conversationId, message }) => ({ conversationId, message }),
+  {
+    name: "reservas",
+    description:
+      "Elegilo cuando el cliente habla de reservar una mesa, horarios o cantidad de personas.",
+    schema: z.object({
+      conversationId: z.string(),
+      message: z.string(),
+    }),
+  }
+);
+
+const pedidosTool = tool(
+  async ({ orderId, address, notes, items }) =>
+    ({
+      orderId,
+      address,
+      notes,
+      items,
+    }) as PedidosTaskInput,
+  {
+    name: "pedidos",
+    description:
+      "Elegilo cuando el cliente esta haciendo o ajustando un pedido de comida/bebida.",
+    schema: z.object({
+      orderId: z.string().optional(),
+      address: z.string().optional(),
+      notes: z.string().optional(),
+      items: z
+        .array(
+          z.object({
+            id: z.string().optional(),
+            name: z.string(),
+            quantity: z.number().default(1),
+            notes: z.string().optional(),
+          })
+        )
+        .default([]),
+    }),
+  }
+);
+
+const preciosTool = tool(
+  async ({ products, context }) =>
+    ({
+      products,
+      context,
+    }) as PreciosTaskInput,
+  {
+    name: "precios",
+    description:
+      "Elegilo cuando pidan ajustar precios de productos, promociones o analizar demanda/costos.",
+    schema: z.object({
+      products: z.array(
+        z.object({
+          productId: z.string(),
+          name: z.string(),
+          currentPrice: z.number(),
+          currency: z.string().optional(),
+          cost: z.number().optional(),
+          demandSignal: z.string().optional(),
+          competitionPrice: z.number().optional(),
+          notes: z.string().optional(),
+        })
+      ),
+      context: z
+        .object({
+          costs: z.string().optional(),
+          demand: z.string().optional(),
+          competition: z.string().optional(),
+          notes: z.string().optional(),
+        })
+        .optional(),
+    }),
+  }
+);
 
 const routerModel = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
@@ -43,126 +94,114 @@ const routerModel = new ChatGoogleGenerativeAI({
   temperature: 0.2,
 });
 
-const routerChain = routerPrompt.pipe(routerModel).pipe(new StringOutputParser());
-
-const cleanJson = (raw: string): string => {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("```")) {
-    return trimmed.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
-  }
-  return trimmed;
-};
-
-const normalizeReservas = (
-  parsed: unknown,
-  defaults: ReservasTaskInput
-): ReservasTaskInput => ({
-  conversationId:
-    parsed && typeof parsed === "object" && "conversationId" in parsed
-      ? String((parsed as Record<string, unknown>).conversationId ?? defaults.conversationId)
-      : defaults.conversationId,
-  message:
-    parsed && typeof parsed === "object" && "message" in parsed
-      ? String((parsed as Record<string, unknown>).message ?? defaults.message)
-      : defaults.message,
+const orchestratorSchema = z.object({
+  reservas: z
+    .object({
+      conversationId: z.string(),
+      message: z.string(),
+    })
+    .nullable()
+    .optional(),
+  pedidos: z
+    .object({
+      orderId: z.string().optional(),
+      address: z.string().optional(),
+      notes: z.string().optional(),
+      items: z
+        .array(
+          z.object({
+            id: z.string().optional(),
+            name: z.string(),
+            quantity: z.number(),
+            notes: z.string().optional(),
+          })
+        )
+        .default([]),
+    })
+    .nullable()
+    .optional(),
+  precios: z
+    .object({
+      products: z.array(
+        z.object({
+          productId: z.string(),
+          name: z.string(),
+          currentPrice: z.number(),
+          currency: z.string().optional(),
+          cost: z.number().optional(),
+          demandSignal: z.string().optional(),
+          competitionPrice: z.number().optional(),
+          notes: z.string().optional(),
+        })
+      ),
+      context: z
+        .object({
+          costs: z.string().optional(),
+          demand: z.string().optional(),
+          competition: z.string().optional(),
+          notes: z.string().optional(),
+        })
+        .optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
-const normalizePedidos = (
-  parsed: unknown
-): PedidosTaskInput | undefined => {
-  if (!parsed || typeof parsed !== "object") return undefined;
-  const candidate = parsed as Record<string, unknown>;
+const routerPrompt = [
+  "Sos un despachador para un sistema multi-agente (reservas | pedidos | precios).",
+  "Elegí exactamente UN agente y llamá a su herramienta con los datos estructurados.",
+  "Si el mensaje no trae datos suficientes, pedí lo mínimo indispensable en el tool call (ej: items vacíos, notes con el texto del usuario).",
+  "No escribas texto libre; usá solo llamadas a herramientas y la respuesta final estructurada.",
+].join("\n");
 
-  const itemsRaw = Array.isArray(candidate.items) ? candidate.items : [];
-  const items: PedidoItem[] = [];
-  if (itemsRaw.length > 0) {
-    for (const it of itemsRaw) {
-      if (!it || typeof it !== "object" || !("name" in it)) continue;
-      const typed = it as Record<string, unknown>;
-      const quantity =
-        typeof typed.quantity === "number" && typed.quantity > 0
-          ? Math.round(typed.quantity)
-          : 1;
-      items.push({
-        id: typed.id ? String(typed.id) : undefined,
-        name: String(typed.name),
-        quantity,
-        notes: typed.notes ? String(typed.notes) : undefined,
-      });
-    }
-  }
-
-  if (items.length === 0) return undefined;
-
-  return {
-    orderId: candidate.orderId ? String(candidate.orderId) : undefined,
-    address: candidate.address ? String(candidate.address) : undefined,
-    notes: candidate.notes ? String(candidate.notes) : undefined,
-    items,
-  };
-};
-
-const normalizePrecios = (parsed: unknown): PreciosTaskInput | undefined => {
-  if (!parsed || typeof parsed !== "object") return undefined;
-  const candidate = parsed as Record<string, unknown>;
-  if (!Array.isArray(candidate.products) || candidate.products.length === 0)
-    return undefined;
-
-  const products = candidate.products.map((p: unknown) => {
-    if (!p || typeof p !== "object") return null;
-    const prod = p as Record<string, unknown>;
-    return {
-      productId: String(prod?.productId ?? prod?.id ?? ""),
-      name: String(prod?.name ?? ""),
-      currentPrice: Number(prod?.currentPrice ?? 0),
-      currency: prod?.currency ? String(prod.currency) : undefined,
-      cost: prod?.cost != null ? Number(prod.cost) : undefined,
-      demandSignal: prod?.demandSignal ? String(prod.demandSignal) : undefined,
-      competitionPrice:
-        prod?.competitionPrice != null ? Number(prod.competitionPrice) : undefined,
-      notes: prod?.notes ? String(prod.notes) : undefined,
-    };
-  }).filter((v): v is NonNullable<typeof v> => !!v);
-
-  const context =
-    candidate?.context && typeof candidate.context === "object"
-      ? (() => {
-          const ctx = candidate.context as Record<string, unknown>;
-          return {
-            costs: ctx.costs as string | undefined,
-            demand: ctx.demand as string | undefined,
-            competition: ctx.competition as string | undefined,
-            notes: ctx.notes as string | undefined,
-          };
-        })()
-      : undefined;
-
-  return { products, context };
-};
+const routerAgent = createReactAgent({
+  llm: routerModel,
+  tools: [reservasTool, pedidosTool, preciosTool],
+  prompt: routerPrompt,
+  responseFormat: orchestratorSchema,
+  name: "router",
+  description: "Despacha la petición al agente correcto.",
+});
 
 export async function routeToTasks(
   conversationId: string,
   message: string
 ): Promise<OrchestratorInput> {
-  try {
-    const raw = await routerChain.invoke({ conversationId, message });
-    const cleaned = cleanJson(raw);
-    const parsed = JSON.parse(cleaned);
+  const initial = [
+    {
+      role: "system",
+      content: routerPrompt,
+    },
+    {
+      role: "human",
+      content: [
+        `ID conversacion: ${conversationId}`,
+        "Mensaje del cliente:",
+        message,
+      ].join("\n"),
+    },
+  ];
 
-    const reservas =
-      parsed?.reservas != null
-        ? normalizeReservas(parsed.reservas, { conversationId, message })
-        : undefined;
+  const result = await routerAgent.invoke({
+    messages: initial,
+  });
 
-    const pedidos = normalizePedidos(parsed?.pedidos);
-    const precios = normalizePrecios(parsed?.precios);
+  // Prefer the structuredResponse when available.
+  const structured =
+    (result as { structuredResponse?: unknown }).structuredResponse ?? null;
 
-    if (reservas || pedidos || precios) {
-      return { reservas, pedidos, precios };
+  if (structured && typeof structured === "object") {
+    const parsed = orchestratorSchema.safeParse(structured);
+    if (parsed.success) {
+      const data = parsed.data;
+      return {
+        reservas: data.reservas ?? undefined,
+        pedidos: data.pedidos ?? undefined,
+        precios: data.precios ?? undefined,
+      };
     }
-  } catch {
-    // fall through to default
   }
 
+  // Fallback: build a minimal reservas payload so something responds.
   return { reservas: { conversationId, message } };
 }

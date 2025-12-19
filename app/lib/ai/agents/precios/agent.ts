@@ -37,9 +37,8 @@ const enrichProducts = (
     return {
       productId: p.productId ?? match?.id ?? p.name,
       name: p.name ?? match?.name ?? "Sin nombre",
-      currentPrice:
-        p.currentPrice ?? match?.price ?? (match ? match.price : p.currentPrice),
-      currency: p.currency ?? match?.currency,
+      currentPrice: match?.price ?? p.currentPrice ?? 0, // fuerza precio de catalogo si existe
+      currency: match?.currency ?? p.currency,
       cost: p.cost ?? match?.cost,
       demandSignal: p.demandSignal ?? match?.demandSignal,
       competitionPrice: p.competitionPrice ?? match?.competitionPrice,

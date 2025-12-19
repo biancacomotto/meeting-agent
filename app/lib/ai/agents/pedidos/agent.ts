@@ -102,6 +102,72 @@ const findProductMatch = (name: string, catalog: CatalogProduct[]) => {
   );
 };
 
+type PriceSummary = { total: number; currency?: string; missing: string[] };
+
+const formatCurrency = (amount: number, currency?: string) => {
+  const code = currency ?? "ARS";
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: code,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
+const summarizePrices = (
+  items: PedidoItem[],
+  catalog: CatalogProduct[]
+): PriceSummary => {
+  let total = 0;
+  let currency: string | undefined;
+  const missing: string[] = [];
+
+  for (const item of items) {
+    const match = findProductMatch(item.name, catalog);
+    if (match && typeof match.price === "number") {
+      const qty = item.quantity && item.quantity > 0 ? item.quantity : 1;
+      total += match.price * qty;
+      currency = currency ?? match.currency ?? "ARS";
+    } else {
+      missing.push(item.name);
+    }
+  }
+
+  return { total, currency, missing };
+};
+
+const buildConfirmationMessage = (params: {
+  base?: string;
+  idSuffix: string;
+  summary: PriceSummary;
+  status: PedidosTaskOutput["status"];
+}) => {
+  const { base, idSuffix, summary, status } = params;
+
+  if (status !== "received") return base;
+
+  const pieces: string[] = [];
+  if (base) {
+    pieces.push(
+      idSuffix && !base.includes(idSuffix) ? `${base} ${idSuffix}` : base
+    );
+  } else {
+    pieces.push(`Listo, tome tu pedido${idSuffix}. Te aviso apenas salga.`);
+  }
+
+  if (summary.total > 0) {
+    pieces.push(
+      `Total estimado: ${formatCurrency(summary.total, summary.currency)}.`
+    );
+  }
+
+  if (summary.missing.length > 0) {
+    pieces.push(`Sin precio para: ${summary.missing.join(", ")}.`);
+  }
+
+  return pieces.join(" ").trim();
+};
+
 const coerceItems = (
   responseItems: unknown,
   original: PedidoItem[],
@@ -267,7 +333,7 @@ export async function runPedidos(
         ? Math.round(parsedObj.etaMinutes)
         : undefined;
 
-    const confirmationMessage =
+    let confirmationMessage =
       typeof parsedObj.confirmationMessage === "string" &&
       parsedObj.confirmationMessage.trim().length > 0
         ? parsedObj.confirmationMessage.trim()
@@ -289,6 +355,14 @@ export async function runPedidos(
     });
 
     const idSuffix = savedOrderId ? ` (pedido #${savedOrderId})` : "";
+    const priceSummary = summarizePrices(items, catalog);
+
+    confirmationMessage = buildConfirmationMessage({
+      base: confirmationMessage,
+      idSuffix,
+      summary: priceSummary,
+      status,
+    });
 
     return {
       status,

@@ -105,9 +105,7 @@ const splitMetadata = (
 
 const buildMessages = (input: ReservasTaskInput): BaseMessage[] => {
   const humanContent = [
-    `ID de conversacion: ${input.conversationId}`,
-    "Usa el conversationId como nombre/identificador de la reserva si el cliente no da otro.",
-    "Busca reservas por nombre de la reserva, no por userId.",
+    `ID de usuario: ${input.conversationId}`,
     "Mensaje del cliente:",
     input.message,
     "",

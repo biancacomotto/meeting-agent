@@ -257,7 +257,10 @@ export async function runPrecios(
     );
   }
 
-  const proposals = coerceProposals(parsed);
+  const proposals = coerceProposals(parsed).map((proposal) => ({
+    ...proposal,
+    applied: shouldApply,
+  }));
 
   if (shouldApply) {
     await Promise.all(

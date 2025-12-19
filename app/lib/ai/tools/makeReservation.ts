@@ -14,7 +14,7 @@ const makeReservation = tool(
 
     const reserva = await reservaRepository.create({
       userId,
-      nombreReserva: name ?? "Invitado",
+      nombreReserva: name ?? userId ?? "Invitado",
       fecha,
       cantidadPersonas: people ?? 2,
     });

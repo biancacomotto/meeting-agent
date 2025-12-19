@@ -4,17 +4,22 @@ import {
   reservas,
   nextReservaId,
   mesas,
+  Reserva,
 } from "../memory/store";
+
+const normalize = (value: string) => value.trim().toLowerCase();
+
+const hydrateReserva = (reserva: Reserva) => ({
+  ...reserva,
+  mesas: mesaReservas
+    .filter((mr) => mr.reservaId === reserva.id)
+    .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
+});
 
 export const reservaRepository = {
   async getAll() {
     // Simula include { mesas: { include: { mesa: true } } }
-    return Array.from(reservas.values()).map((r) => ({
-      ...r,
-      mesas: mesaReservas
-        .filter((mr) => mr.reservaId === r.id)
-        .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
-    }));
+    return Array.from(reservas.values()).map(hydrateReserva);
   },
 
   async create(data: {
@@ -33,36 +38,23 @@ export const reservaRepository = {
     const delDia = Array.from(reservas.values()).filter((r) =>
       isSameDay(r.fecha, fecha)
     );
-    return delDia.map((r) => ({
-      ...r,
-      mesas: mesaReservas
-        .filter((mr) => mr.reservaId === r.id)
-        .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
-    }));
+    return delDia.map(hydrateReserva);
   },
 
-  async getByUserId(userId: string) {
+  async getByNombre(nombreReserva: string) {
+    const target = normalize(nombreReserva);
     const matches = Array.from(reservas.values()).filter(
-      (r) => r.userId === userId
+      (r) => normalize(r.nombreReserva) === target
     );
-    return matches.map((r) => ({
-      ...r,
-      mesas: mesaReservas
-        .filter((mr) => mr.reservaId === r.id)
-        .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
-    }));
+    return matches.map(hydrateReserva);
   },
 
-  async getByUserIdAndDate(userId: string, fecha: Date) {
+  async getByNombreAndDate(nombreReserva: string, fecha: Date) {
+    const target = normalize(nombreReserva);
     const matches = Array.from(reservas.values()).filter(
-      (r) => r.userId === userId && isSameDay(r.fecha, fecha)
+      (r) => normalize(r.nombreReserva) === target && isSameDay(r.fecha, fecha)
     );
-    return matches.map((r) => ({
-      ...r,
-      mesas: mesaReservas
-        .filter((mr) => mr.reservaId === r.id)
-        .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
-    }));
+    return matches.map(hydrateReserva);
   },
 
   async delete(id: number) {

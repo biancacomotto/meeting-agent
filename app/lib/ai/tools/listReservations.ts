@@ -3,15 +3,15 @@ import z from "zod";
 import { reservaRepository } from "@/app/lib/db/repositories/reservaRepository";
 
 const listReservations = tool(
-  async ({ date, userId }) => {
+  async ({ date, name }) => {
     const fecha = date ? new Date(date) : null;
     let reservas;
-    if (fecha && userId) {
-      reservas = await reservaRepository.getByUserIdAndDate(userId, fecha);
+    if (fecha && name) {
+      reservas = await reservaRepository.getByNombreAndDate(name, fecha);
     } else if (fecha) {
       reservas = await reservaRepository.getByDate(fecha);
-    } else if (userId) {
-      reservas = await reservaRepository.getByUserId(userId);
+    } else if (name) {
+      reservas = await reservaRepository.getByNombre(name);
     } else {
       reservas = await reservaRepository.getAll();
     }
@@ -30,10 +30,10 @@ const listReservations = tool(
   {
     name: "list_reservations",
     description:
-      "Lista reservas por fecha o por ID de usuario; si no hay fecha, lista todas las de ese usuario.",
+      "Lista reservas por fecha o por nombre de la reserva; si no hay fecha, lista todas las de ese nombre.",
     schema: z.object({
       date: z.string().optional().describe("Fecha (ISO string)"),
-      userId: z.string().optional().describe("ID del usuario/cliente"),
+      name: z.string().optional().describe("Nombre de la reserva"),
     }),
   }
 );

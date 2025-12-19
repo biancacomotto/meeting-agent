@@ -13,13 +13,16 @@ import z from "zod";
 import { runPedidos } from "@/app/lib/ai/agents/pedidos/agent";
 import { runPrecios } from "@/app/lib/ai/agents/precios/agent";
 import { runReservas } from "@/app/lib/ai/agents/reservas/agent";
+import { runCarta } from "@/app/lib/ai/agents/carta/agent";
 import {
+  CartaTaskInput,
   PedidosTaskInput,
   PreciosTaskInput,
   ReservasTaskInput,
   TaskName,
 } from "@/app/lib/ai/orchestrator/types";
 import {
+  formatCartaResponse,
   formatPedidosResponse,
   formatPreciosResponse,
   formatReservasResponse,
@@ -39,7 +42,7 @@ const routerThreads = new Set<string>();
 
 const supervisorPrompt = [
   "Sos el nodo Agent principal de un flujo estilo n8n.",
-  "Tenes tres Agent Tools: reservas, pedidos y precios. Elegi solo el que aplica y pasale los datos justos.",
+  "Tenes cuatro Agent Tools: reservas, pedidos, precios y carta. Elegi solo el que aplica y pasale los datos justos.",
   "Responde al cliente en texto simple y canchero (espanol rioplatense), sin JSON ni markdown.",
   "Si falta informacion, pedila en una sola pregunta concreta antes de accionar.",
   "No inventes datos: usa solo lo que recibis o lo que puedas inferir con mucha confianza.",
@@ -156,6 +159,16 @@ const sanitizePreciosInput = (
   };
 };
 
+const sanitizeCartaInput = (
+  input: unknown,
+  conversationId?: string
+): CartaTaskInput => {
+  const typed = (input as { conversationId?: string }) ?? {};
+  return {
+    conversationId: typed.conversationId ?? conversationId,
+  };
+};
+
 const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
   {
     task: "reservas",
@@ -231,6 +244,19 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
     format: (output) => formatPreciosResponse(output),
     fallback:
       "Necesito al menos un producto con precio actual para sugerir ajustes.",
+  },
+  {
+    task: "carta",
+    toolName: "carta_agent",
+    description:
+      "Agent Tool: devuelve un link al HTML con todos los productos (carta/menu).",
+    schema: z.object({
+      conversationId: z.string().optional(),
+    }),
+    normalize: sanitizeCartaInput,
+    run: runCarta,
+    format: (output) => formatCartaResponse(output),
+    fallback: "No pude generar el link de la carta en este momento.",
   },
 ];
 

@@ -1,8 +1,10 @@
+import { runCarta } from "@/app/lib/ai/agents/carta/agent";
 import { runPedidos } from "@/app/lib/ai/agents/pedidos/agent";
 import { runPrecios } from "@/app/lib/ai/agents/precios/agent";
 import { runReservas } from "@/app/lib/ai/agents/reservas/agent";
 import {
   AgentTask,
+  CartaTaskOutput,
   OrchestratorInput,
   OrchestratorResult,
   PedidosTaskOutput,
@@ -18,6 +20,7 @@ const DEFAULT_TIMEOUTS: Record<TaskName, number> = {
   reservas: 15_000,
   pedidos: 12_000,
   precios: 12_000,
+  carta: 5_000,
 };
 
 class TimeoutError extends Error {
@@ -121,6 +124,7 @@ export const runAllTasks = async (
   addTask("reservas", input.reservas, runReservas);
   addTask("pedidos", input.pedidos, runPedidos);
   addTask("precios", input.precios, runPrecios);
+  addTask("carta", input.carta, runCarta);
 
   const executed = await Promise.all(scheduled);
 
@@ -149,6 +153,14 @@ export const runAllTasks = async (
       (results.get("precios") as TaskResult<PreciosTaskOutput>) ??
       {
         task: "precios",
+        status: "skipped",
+        durationMs: 0,
+        error: "Task skipped: no input provided",
+      },
+    carta:
+      (results.get("carta") as TaskResult<CartaTaskOutput>) ??
+      {
+        task: "carta",
         status: "skipped",
         durationMs: 0,
         error: "Task skipped: no input provided",

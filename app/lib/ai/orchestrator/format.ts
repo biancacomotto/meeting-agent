@@ -1,4 +1,5 @@
 import {
+  CartaTaskOutput,
   PedidosTaskOutput,
   PreciosTaskOutput,
   ReservasTaskOutput,
@@ -87,4 +88,12 @@ export const formatPreciosResponse = (
   });
 
   return `Propuestas de precio: ${lines.join(" | ")}`;
+};
+
+export const formatCartaResponse = (
+  output?: CartaTaskOutput
+): string | null => {
+  if (!output) return null;
+  const suffix = output.count > 0 ? ` (${output.count} productos)` : "";
+  return `Te dejo la carta aca: ${output.link}${suffix}.`;
 };

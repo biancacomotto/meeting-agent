@@ -1,4 +1,4 @@
-export type TaskName = "reservas" | "pedidos" | "precios";
+export type TaskName = "reservas" | "pedidos" | "precios" | "carta";
 
 export type ReservasTaskInput = {
   conversationId: string;
@@ -73,10 +73,20 @@ export type PreciosTaskOutputItem = {
 
 export type PreciosTaskOutput = PreciosTaskOutputItem[];
 
+export type CartaTaskInput = {
+  conversationId?: string;
+};
+
+export type CartaTaskOutput = {
+  link: string;
+  count: number;
+};
+
 export type OrchestratorInput = {
   reservas?: ReservasTaskInput;
   pedidos?: PedidosTaskInput;
   precios?: PreciosTaskInput;
+  carta?: CartaTaskInput;
 };
 
 export type TaskStatus = "ok" | "error" | "timeout" | "skipped";
@@ -93,6 +103,7 @@ export type OrchestratorResult = {
   reservas: TaskResult<ReservasTaskOutput>;
   pedidos: TaskResult<PedidosTaskOutput>;
   precios: TaskResult<PreciosTaskOutput>;
+  carta: TaskResult<CartaTaskOutput>;
 };
 
 export type AgentTask<TInput, TOutput> = (input: TInput) => Promise<TOutput>;

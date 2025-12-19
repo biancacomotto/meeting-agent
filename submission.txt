@@ -1,5 +1,5 @@
-Repositorio: <pegar_link_github>
-Deploy: <pegar_link_railway>
+Repositorio: https://github.com/biancacomotto/meeting-agent
+Deploy: +54 11 7145 1568
 Presentacion (Loom): <pegar_link_loom>
 
 Notas:

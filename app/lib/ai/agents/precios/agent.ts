@@ -217,7 +217,7 @@ export async function runPrecios(
   });
   const catalogSummary = formatCatalogForPrompt(catalog);
   const shouldApply = resolvedInput.context?.confirm === true;
-  const threadId = input.conversationId ?? "precios";
+  const threadId = `precios:${input.conversationId ?? "default"}`;
   const { messages } = await preciosAgent.invoke(
     {
       messages: [

@@ -284,7 +284,7 @@ export async function runPedidos(
     const catalog = await productRepository.list();
     const formatted = formatInput(input);
     const catalogSummary = formatCatalogForPrompt(catalog);
-    const threadId = input.conversationId ?? input.orderId ?? "pedidos";
+    const threadId = `pedidos:${input.conversationId ?? input.orderId ?? "default"}`;
     const { messages } = await pedidosAgent.invoke(
       {
         messages: [

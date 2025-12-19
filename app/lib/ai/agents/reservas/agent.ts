@@ -104,6 +104,7 @@ const splitMetadata = (
 };
 
 const buildMessages = (input: ReservasTaskInput): BaseMessage[] => {
+  const threadId = `reservas:${input.conversationId}`;
   const humanContent = [
     `ID de usuario: ${input.conversationId}`,
     "Mensaje del cliente:",
@@ -113,7 +114,7 @@ const buildMessages = (input: ReservasTaskInput): BaseMessage[] => {
   ].join("\n");
 
   const messages: BaseMessage[] = [];
-  if (!reservasThreads.has(input.conversationId)) {
+  if (!reservasThreads.has(threadId)) {
     messages.push(new SystemMessage(reservasPrompt));
   }
   messages.push(new HumanMessage(humanContent));
@@ -128,9 +129,9 @@ export async function runReservas(
       {
         messages: buildMessages(input),
       },
-      { configurable: { thread_id: input.conversationId } }
+      { configurable: { thread_id: `reservas:${input.conversationId}` } }
     );
-    reservasThreads.add(input.conversationId);
+    reservasThreads.add(`reservas:${input.conversationId}`);
 
     const finalMessage = messages[messages.length - 1];
     const rawText = extractText(finalMessage);

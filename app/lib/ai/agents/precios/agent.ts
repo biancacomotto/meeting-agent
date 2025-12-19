@@ -11,6 +11,51 @@ import {
 } from "@/app/lib/ai/orchestrator/types";
 import { productRepository } from "@/app/lib/db/repositories/productRepository";
 
+type CatalogProduct = Awaited<ReturnType<typeof productRepository.list>>[number];
+
+const findProductMatch = (nameOrId: string, catalog: CatalogProduct[]) => {
+  const needle = nameOrId.trim().toLowerCase();
+  return (
+    catalog.find(
+      (p) =>
+        p.id.toLowerCase() === needle ||
+        p.name.toLowerCase() === needle ||
+        p.name.toLowerCase().includes(needle) ||
+        needle.includes(p.name.toLowerCase())
+    ) ?? null
+  );
+};
+
+const enrichProducts = (
+  products: PreciosTaskInput["products"],
+  catalog: CatalogProduct[]
+) => {
+  return products.map((p) => {
+    const match =
+      findProductMatch(p.productId ?? "", catalog) ??
+      findProductMatch(p.name, catalog);
+    return {
+      productId: p.productId ?? match?.id ?? p.name,
+      name: p.name ?? match?.name ?? "Sin nombre",
+      currentPrice:
+        p.currentPrice ?? match?.price ?? (match ? match.price : p.currentPrice),
+      currency: p.currency ?? match?.currency,
+      cost: p.cost ?? match?.cost,
+      demandSignal: p.demandSignal ?? match?.demandSignal,
+      competitionPrice: p.competitionPrice ?? match?.competitionPrice,
+      notes: p.notes ?? match?.notes,
+    };
+  });
+};
+
+const formatCatalogForPrompt = (catalog: CatalogProduct[]) =>
+  catalog
+    .map(
+      (p) =>
+        `- ${p.name} (${p.id}): ${p.price} ${p.currency ?? "ARS"}`
+    )
+    .join("\n");
+
 const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_API_KEY ?? "your-google-api-key",
   model: "gemini-2.5-flash",
@@ -115,29 +160,32 @@ function coerceProposals(parsed: unknown): PreciosTaskOutput {
   throw new Error("La respuesta del agente no trae un array de propuestas");
 }
 
-function formatInput(input: PreciosTaskInput): {
+const formatInput = (params: {
+  products: PreciosTaskInput["products"];
+  context?: PreciosTaskInput["context"];
+}): {
   context: string;
   products: string;
   currency: string;
-} {
+} => {
   const context =
-    input.context && Object.keys(input.context).length > 0
-      ? JSON.stringify(input.context, null, 2)
+    params.context && Object.keys(params.context).length > 0
+      ? JSON.stringify(params.context, null, 2)
       : "Sin contexto adicional";
 
-  const products = JSON.stringify(input.products, null, 2);
+  const products = JSON.stringify(params.products, null, 2);
 
   const preferredCurrency =
-    input.products.find((p) => p.currency)?.currency ?? "ARS";
+    params.products.find((p) => p.currency)?.currency ?? "ARS";
 
   return { context, products, currency: preferredCurrency };
-}
+};
 
 async function withCatalogFallback(
-  input: PreciosTaskInput
+  input: PreciosTaskInput,
+  catalog: CatalogProduct[]
 ): Promise<PreciosTaskInput> {
   if (input.products && input.products.length > 0) return input;
-  const catalog = await productRepository.list();
 
   return {
     ...input,
@@ -157,12 +205,18 @@ async function withCatalogFallback(
 export async function runPrecios(
   input: PreciosTaskInput
 ): Promise<PreciosTaskOutput> {
-  const resolvedInput = await withCatalogFallback(input);
+  const catalog = await productRepository.list();
+  const resolvedInput = await withCatalogFallback(input, catalog);
   if (!resolvedInput.products || resolvedInput.products.length === 0) {
     throw new Error("Debes enviar al menos un producto para ajustar precios");
   }
 
-  const formatted = formatInput(resolvedInput);
+  const enrichedProducts = enrichProducts(resolvedInput.products, catalog);
+  const formatted = formatInput({
+    products: enrichedProducts,
+    context: resolvedInput.context,
+  });
+  const catalogSummary = formatCatalogForPrompt(catalog);
   const threadId = input.conversationId ?? "precios";
   const { messages } = await preciosAgent.invoke(
     {
@@ -177,6 +231,9 @@ export async function runPrecios(
             formatted.context,
             "Productos a ajustar (JSON):",
             formatted.products,
+            "",
+            "Catalogo conocido con precios vigentes:",
+            catalogSummary,
           ].join("\n")
         ),
       ],

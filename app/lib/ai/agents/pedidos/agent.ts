@@ -269,12 +269,21 @@ const formatInput = (input: PedidosTaskInput) => ({
   items: JSON.stringify(input.items, null, 2),
 });
 
+const formatCatalogForPrompt = (catalog: CatalogProduct[]) =>
+  catalog
+    .map(
+      (p) =>
+        `- ${p.name} (${p.id}): ${p.price} ${p.currency ?? "ARS"}`
+    )
+    .join("\n");
+
 export async function runPedidos(
   input: PedidosTaskInput
 ): Promise<PedidosTaskOutput> {
   try {
     const catalog = await productRepository.list();
     const formatted = formatInput(input);
+    const catalogSummary = formatCatalogForPrompt(catalog);
     const threadId = input.conversationId ?? input.orderId ?? "pedidos";
     const { messages } = await pedidosAgent.invoke(
       {
@@ -289,6 +298,9 @@ export async function runPedidos(
               `Notas: ${formatted.notes}`,
               "Items (JSON):",
               formatted.items,
+              "",
+              "Precios conocidos del menu:",
+              catalogSummary,
               "",
               "Recordatorio: responde solo el JSON solicitado.",
             ].join("\n")
@@ -324,7 +336,7 @@ export async function runPedidos(
     const parsedObj =
       parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
 
-    const status = coerceStatus(parsedObj.status);
+    let status = coerceStatus(parsedObj.status);
     const items = coerceItems(parsedObj.items, input.items, catalog);
     const issues = normalizeIssues(parsedObj.issues);
 
@@ -340,6 +352,11 @@ export async function runPedidos(
         : status === "received"
         ? "Pedido recibido. Lo preparamos y te avisamos cualquier novedad."
         : undefined;
+
+    // Si no hay issues, damos por recibido para no pedir precios o datos extra
+    if (issues.length === 0) {
+      status = "received";
+    }
 
     const finalIssues =
       status === "needs_clarification" && issues.length === 0

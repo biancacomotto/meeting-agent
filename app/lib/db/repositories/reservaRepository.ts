@@ -18,6 +18,7 @@ export const reservaRepository = {
   },
 
   async create(data: {
+    userId?: string;
     nombreReserva: string;
     fecha: Date;
     cantidadPersonas: number;
@@ -33,6 +34,30 @@ export const reservaRepository = {
       isSameDay(r.fecha, fecha)
     );
     return delDia.map((r) => ({
+      ...r,
+      mesas: mesaReservas
+        .filter((mr) => mr.reservaId === r.id)
+        .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
+    }));
+  },
+
+  async getByUserId(userId: string) {
+    const matches = Array.from(reservas.values()).filter(
+      (r) => r.userId === userId
+    );
+    return matches.map((r) => ({
+      ...r,
+      mesas: mesaReservas
+        .filter((mr) => mr.reservaId === r.id)
+        .map((mr) => ({ mesaId: mr.mesaId, mesa: mesas.get(mr.mesaId)! })),
+    }));
+  },
+
+  async getByUserIdAndDate(userId: string, fecha: Date) {
+    const matches = Array.from(reservas.values()).filter(
+      (r) => r.userId === userId && isSameDay(r.fecha, fecha)
+    );
+    return matches.map((r) => ({
       ...r,
       mesas: mesaReservas
         .filter((mr) => mr.reservaId === r.id)

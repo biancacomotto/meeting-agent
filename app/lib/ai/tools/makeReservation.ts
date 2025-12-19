@@ -5,7 +5,7 @@ import { reservaRepository } from "@/app/lib/db/repositories/reservaRepository";
 import { mesaReservaRepository } from "@/app/lib/db/repositories/mesaReservaRepository";
 
 const makeReservation = tool(
-  async ({ name, date, people }) => {
+  async ({ name, date, people, userId }) => {
     const fecha = date ? new Date(date) : new Date();
     const mesas = await mesaRepository.getAvailable(fecha, people ?? 2);
 
@@ -13,6 +13,7 @@ const makeReservation = tool(
       return `No hay mesas disponibles para ${people ?? 2} persona(s).`;
 
     const reserva = await reservaRepository.create({
+      userId,
       nombreReserva: name ?? "Invitado",
       fecha,
       cantidadPersonas: people ?? 2,
@@ -36,6 +37,7 @@ const makeReservation = tool(
       name: z.string().optional().describe("Nombre de la reserva"),
       date: z.string().optional().describe("Fecha de la reserva (ISO string)"),
       people: z.number().optional().describe("Cantidad de personas"),
+      userId: z.string().optional().describe("ID del usuario/cliente"),
     }),
   }
 );

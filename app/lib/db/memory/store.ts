@@ -2,6 +2,7 @@
 export type Mesa = { id: number; numero: number; capacidad: number };
 export type Reserva = {
   id: number;
+  userId?: string;
   nombreReserva: string;
   fecha: Date; // ISO al entrar → Date acá
   cantidadPersonas: number;

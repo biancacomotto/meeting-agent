@@ -217,6 +217,7 @@ export async function runPrecios(
     context: resolvedInput.context,
   });
   const catalogSummary = formatCatalogForPrompt(catalog);
+  const shouldApply = resolvedInput.context?.confirm === true;
   const threadId = input.conversationId ?? "precios";
   const { messages } = await preciosAgent.invoke(
     {
@@ -259,20 +260,22 @@ export async function runPrecios(
 
   const proposals = coerceProposals(parsed);
 
-  await Promise.all(
-    proposals.map(async (proposal) => {
-      const updated = await productRepository.upsertPrice(
-        proposal.productId,
-        proposal.newPrice
-      );
-      if (!updated) {
-        const byName = await productRepository.findByName(proposal.name);
-        if (byName) {
-          await productRepository.upsertPrice(byName.id, proposal.newPrice);
+  if (shouldApply) {
+    await Promise.all(
+      proposals.map(async (proposal) => {
+        const updated = await productRepository.upsertPrice(
+          proposal.productId,
+          proposal.newPrice
+        );
+        if (!updated) {
+          const byName = await productRepository.findByName(proposal.name);
+          if (byName) {
+            await productRepository.upsertPrice(byName.id, proposal.newPrice);
+          }
         }
-      }
-    })
-  );
+      })
+    );
+  }
 
   return proposals;
 }

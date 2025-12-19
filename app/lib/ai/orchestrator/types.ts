@@ -53,6 +53,7 @@ export type PreciosContext = {
   demand?: string;
   competition?: string;
   notes?: string;
+  confirm?: boolean; // si true, aplicar cambios; si undefined/false, solo sugerir
 };
 
 export type PreciosTaskInput = {

@@ -200,5 +200,22 @@ export async function runPrecios(
     );
   }
 
-  return coerceProposals(parsed);
+  const proposals = coerceProposals(parsed);
+
+  await Promise.all(
+    proposals.map(async (proposal) => {
+      const updated = await productRepository.upsertPrice(
+        proposal.productId,
+        proposal.newPrice
+      );
+      if (!updated) {
+        const byName = await productRepository.findByName(proposal.name);
+        if (byName) {
+          await productRepository.upsertPrice(byName.id, proposal.newPrice);
+        }
+      }
+    })
+  );
+
+  return proposals;
 }

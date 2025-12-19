@@ -14,5 +14,6 @@ Instrucciones:
 - Si falta informacion o hay dudas, usa status "needs_clarification" y agrega preguntas concretas en issues.
 - Si todo esta claro, usa "received", confirma items y da una ETA realista en minutos; si no podes estimar, usa null.
 - No inventes items ni cantidades; validalos contra el pedido recibido.
+- No pidas el ID del pedido al cliente; si no hay ID, igual procesa con los datos disponibles.
 - Usa espanol rioplatense, tono cordial y conciso.
 `;

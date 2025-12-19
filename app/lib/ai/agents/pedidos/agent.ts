@@ -198,7 +198,6 @@ const persistOrder = async (params: {
 };
 
 const formatInput = (input: PedidosTaskInput) => ({
-  orderId: input.orderId ?? "no provisto",
   address: input.address ?? "no provista",
   notes: input.notes ?? "sin notas",
   items: JSON.stringify(input.items, null, 2),
@@ -220,7 +219,6 @@ export async function runPedidos(
           new HumanMessage(
             [
               "Datos del pedido:",
-              `ID: ${formatted.orderId}`,
               `Direccion: ${formatted.address}`,
               `Notas: ${formatted.notes}`,
               "Items (JSON):",
@@ -281,14 +279,6 @@ export async function runPedidos(
       status === "needs_clarification" && issues.length === 0
         ? ["Necesito que aclares alguno de los datos del pedido."]
         : issues;
-
-    return {
-      status,
-      items,
-      etaMinutes: status === "received" ? eta : undefined,
-      issues: finalIssues,
-      confirmationMessage,
-    };
 
     const savedOrderId = await persistOrder({
       input,

@@ -70,6 +70,7 @@ export type PreciosTaskOutputItem = {
   rationale: string;
   suggestedFrom?: string;
   suggestedUntil?: string;
+  applied?: boolean;
 };
 
 export type PreciosTaskOutput = PreciosTaskOutputItem[];

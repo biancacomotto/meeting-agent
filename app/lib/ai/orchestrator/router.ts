@@ -213,7 +213,8 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
   {
     task: "precios",
     toolName: "precios_agent",
-    description: "Agent Tool: calcula ajustes de precios para productos.",
+    description:
+      "Agent Tool: calcula ajustes de precios para productos. Si el usuario confirma aplicar cambios, setea context.confirm=true.",
     schema: z.object({
       conversationId: z.string().optional(),
       context: z
@@ -222,6 +223,7 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
           demand: z.string().optional(),
           competition: z.string().optional(),
           notes: z.string().optional(),
+          confirm: z.boolean().optional(),
         })
         .optional(),
       products: z

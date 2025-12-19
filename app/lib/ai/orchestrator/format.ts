@@ -79,6 +79,7 @@ export const formatPreciosResponse = (
 ): string | null => {
   if (!output || output.length === 0) return null;
 
+  const applied = output.every((p) => p.applied === true);
   const lines = output.map((p) => {
     const window =
       p.suggestedFrom || p.suggestedUntil
@@ -87,7 +88,11 @@ export const formatPreciosResponse = (
     return `${p.name}: ${p.currentPrice} -> ${p.newPrice}${window}. Motivo: ${p.rationale}`;
   });
 
-  return `Propuestas de precio: ${lines.join(" | ")}`;
+  if (applied) {
+    return `Precios actualizados: ${lines.join(" | ")}`;
+  }
+
+  return `Propuestas de precio: ${lines.join(" | ")}. No cambie los precios todavia; confirmame si aplico los sugeridos o mantenemos los actuales.`;
 };
 
 export const formatCartaResponse = (

@@ -1,5 +1,9 @@
 import "server-only";
-import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  BaseMessage,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { MemorySaver } from "@langchain/langgraph";
@@ -11,7 +15,9 @@ import {
 } from "@/app/lib/ai/orchestrator/types";
 import { productRepository } from "@/app/lib/db/repositories/productRepository";
 
-type CatalogProduct = Awaited<ReturnType<typeof productRepository.list>>[number];
+type CatalogProduct = Awaited<
+  ReturnType<typeof productRepository.list>
+>[number];
 
 const findProductMatch = (nameOrId: string, catalog: CatalogProduct[]) => {
   const needle = nameOrId.trim().toLowerCase();
@@ -49,10 +55,7 @@ const enrichProducts = (
 
 const formatCatalogForPrompt = (catalog: CatalogProduct[]) =>
   catalog
-    .map(
-      (p) =>
-        `- ${p.name} (${p.id}): ${p.price} ${p.currency ?? "ARS"}`
-    )
+    .map((p) => `- ${p.name} (${p.id}): ${p.price} ${p.currency ?? "ARS"}`)
     .join("\n");
 
 const model = new ChatGoogleGenerativeAI({
@@ -61,10 +64,14 @@ const model = new ChatGoogleGenerativeAI({
   temperature: 0.2,
 });
 
+const googleSearchTool = {
+  google_search: {},
+};
+
 const preciosCheckpointer = new MemorySaver();
 const preciosAgent = createReactAgent({
   llm: model,
-  tools: [],
+  tools: [googleSearchTool],
   checkpointer: preciosCheckpointer,
 });
 const preciosThreads = new Set<string>();
@@ -92,7 +99,10 @@ const extractText = (message?: BaseMessage): string => {
 function cleanJsonResponse(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.startsWith("```")) {
-    return trimmed.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    return trimmed
+      .replace(/^```json\s*/i, "")
+      .replace(/```$/, "")
+      .trim();
   }
   return trimmed;
 }
@@ -117,7 +127,9 @@ function normalizeProposal(entry: RawProposal): PreciosTaskOutputItem {
     productId: String(entry?.productId ?? entry?.id ?? ""),
     name: String(entry?.name ?? ""),
     currentPrice: Number(entry?.currentPrice ?? 0),
-    newPrice: Number(entry?.newPrice ?? entry?.price ?? entry?.currentPrice ?? 0),
+    newPrice: Number(
+      entry?.newPrice ?? entry?.price ?? entry?.currentPrice ?? 0
+    ),
     rationale: String(entry?.rationale ?? entry?.reason ?? ""),
   };
 
@@ -151,9 +163,9 @@ function coerceProposals(parsed: unknown): PreciosTaskOutput {
     "proposals" in parsed &&
     Array.isArray((parsed as { proposals?: unknown }).proposals)
   ) {
-    return (
-      parsed as { proposals: RawProposal[] }
-    ).proposals.map((p: RawProposal) => normalizeProposal(p));
+    return (parsed as { proposals: RawProposal[] }).proposals.map(
+      (p: RawProposal) => normalizeProposal(p)
+    );
   }
 
   throw new Error("La respuesta del agente no trae un array de propuestas");

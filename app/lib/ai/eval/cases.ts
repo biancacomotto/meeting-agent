@@ -48,6 +48,33 @@ export const evalCases: EvalCase[] = [
     mustNotIncludeJson: true,
   },
   {
+    id: "precios-explicito",
+    description: "Precio con valor pedido por el usuario",
+    conversationId: "eval-precios-2",
+    turns: ["Bajalo a 2500 el flan."],
+    expectedAgent: "precios",
+    mustNotIncludeJson: true,
+  },
+  {
+    id: "precios-confirmacion",
+    description: "Confirmacion de ajuste de precios",
+    conversationId: "eval-precios-3",
+    turns: [
+      "Necesito ajustar el flan por costos.",
+      "Confirmo aplicar el precio sugerido.",
+    ],
+    expectedAgent: "precios",
+    mustNotIncludeJson: true,
+  },
+  {
+    id: "pedido-consulta-precio",
+    description: "Pedido con consulta de precio",
+    conversationId: "eval-pedido-3",
+    turns: ["Quiero pedir una pizza, cuanto sale?"],
+    expectedAgent: "pedidos",
+    mustNotIncludeJson: true,
+  },
+  {
     id: "info-horarios",
     description: "Consulta de horarios via RAG",
     conversationId: "eval-info-1",

@@ -41,6 +41,7 @@ export type PrecioProducto = {
   productId: string;
   name: string;
   currentPrice: number;
+  desiredPrice?: number;
   currency?: string;
   cost?: number;
   demandSignal?: string;

@@ -38,7 +38,6 @@ const enrichProducts = (
       productId: p.productId ?? match?.id ?? p.name,
       name: p.name ?? match?.name ?? "Sin nombre",
       currentPrice: match?.price ?? p.currentPrice ?? 0, // fuerza precio de catalogo si existe
-      desiredPrice: p.desiredPrice,
       currency: match?.currency ?? p.currency,
       cost: p.cost ?? match?.cost,
       demandSignal: p.demandSignal ?? match?.demandSignal,
@@ -262,32 +261,6 @@ export async function runPrecios(
     ...proposal,
     applied: shouldApply,
   }));
-
-  const desiredByKey = new Map<string, number>();
-  for (const product of enrichedProducts) {
-    if (typeof product.desiredPrice === "number" && !Number.isNaN(product.desiredPrice)) {
-      if (product.productId) {
-        desiredByKey.set(product.productId.toLowerCase(), product.desiredPrice);
-      }
-      if (product.name) {
-        desiredByKey.set(product.name.toLowerCase(), product.desiredPrice);
-      }
-    }
-  }
-
-  for (const proposal of proposals) {
-    const desired =
-      desiredByKey.get(proposal.productId.toLowerCase()) ??
-      desiredByKey.get(proposal.name.toLowerCase());
-    if (typeof desired === "number" && !Number.isNaN(desired)) {
-      proposal.newPrice = desired;
-      if (proposal.rationale && !proposal.rationale.toLowerCase().includes("usuario")) {
-        proposal.rationale = `${proposal.rationale} Ajuste solicitado por el usuario.`;
-      } else if (!proposal.rationale) {
-        proposal.rationale = "Ajuste solicitado por el usuario.";
-      }
-    }
-  }
 
   if (shouldApply) {
     await Promise.all(

@@ -39,42 +39,11 @@ const routerModel = new ChatGoogleGenerativeAI({
 // Reusamos un checkpointer para que el nodo Agent conserve memoria por conversacion
 const routerCheckpointer = new MemorySaver();
 const routerThreads = new Set<string>();
-const lastAgentByConversation = new Map<string, TaskName>();
-
-const buildRoutingHint = (
-  message: string,
-  lastAgent?: TaskName
-): string | null => {
-  const normalized = message.trim().toLowerCase();
-  if (!normalized) return lastAgent ? `prefer:${lastAgent}` : null;
-
-  const isShortConfirm =
-    normalized.length <= 24 &&
-    /\b(si|dale|ok|listo|confirmo|aplica|aplicalo|aplicala)\b/.test(normalized);
-
-  const hasOrderIntent =
-    /\b(pedido|pedir|delivery|envio|direccion|cantidad|agrega|saca|llevar)\b/.test(
-      normalized
-    );
-
-  const hasPriceAdjustIntent =
-    /\b(subi|subilo|baja|bajalo|ajusta|ajustar|aumenta|aumentar|cambia|cambiar)\b/.test(
-      normalized
-    ) || /precio\s*(a|en)\s*\d+/.test(normalized);
-
-  if (lastAgent === "precios" && isShortConfirm) return "prefer:precios";
-  if (hasOrderIntent && !hasPriceAdjustIntent) return "prefer:pedidos";
-  if (hasPriceAdjustIntent && !hasOrderIntent) return "prefer:precios";
-  if (lastAgent) return `prefer:${lastAgent}`;
-  return null;
-};
 
 const supervisorPrompt = [
   "Sos el nodo Agent principal de un flujo estilo n8n.",
   "Tenes cuatro Agent Tools: reservas, pedidos, precios y carta. Elegi solo el que aplica y pasale los datos justos.",
   "Usa precios solo para ajustes internos del menu; si el cliente pide o consulta precio en contexto de un pedido, usa pedidos.",
-  "Si el cliente pide un precio exacto (ej: 'bajalo a 2500'), setea desiredPrice en el producto correspondiente.",
-  "Si el cliente confirma aplicar precios (ej: 'confirmo', 'aplica'), setea context.confirm=true.",
   "Responde al cliente en texto simple y canchero (espanol rioplatense), sin JSON ni markdown.",
   "Si falta informacion, pedila en una sola pregunta concreta antes de accionar.",
   "No inventes datos: usa solo lo que recibis o lo que puedas inferir con mucha confianza.",
@@ -166,7 +135,6 @@ const sanitizePreciosInput = (
       productId?: string;
       name: string;
       currentPrice: number;
-      desiredPrice?: number;
       currency?: string;
       cost?: number;
       demandSignal?: string;
@@ -183,7 +151,6 @@ const sanitizePreciosInput = (
         productId: p.productId ?? p.name ?? "sin-id",
         name: p.name,
         currentPrice: p.currentPrice,
-        desiredPrice: p.desiredPrice,
         currency: p.currency,
         cost: p.cost,
         demandSignal: p.demandSignal,
@@ -266,7 +233,6 @@ const agentToolNodes: Array<AgentToolNodeConfig<any, any>> = [
             productId: z.string().optional(),
             name: z.string(),
             currentPrice: z.number(),
-            desiredPrice: z.number().optional(),
             currency: z.string().optional(),
             cost: z.number().optional(),
             demandSignal: z.string().optional(),
@@ -327,11 +293,7 @@ export async function orchestrateWithSubAgents(
   messages: BaseMessage[];
 }> {
   const usedAgents: TaskName[] = [];
-  const onUse = (task: TaskName) => {
-    usedAgents.push(task);
-    lastAgentByConversation.set(conversationId, task);
-  };
-  const tools = buildSubAgentTools(onUse, conversationId);
+  const tools = buildSubAgentTools((task) => usedAgents.push(task), conversationId);
 
   const agent = createReactAgent({
     llm: routerModel,
@@ -351,17 +313,11 @@ export async function orchestrateWithSubAgents(
         ...contextSnippets.map((doc) => `- ${doc.title}: ${doc.text}`),
       ].join("\n")
     : "Contexto util (base interna): sin datos relevantes.";
-  const routingHint = buildRoutingHint(
-    message,
-    lastAgentByConversation.get(conversationId)
-  );
-
   baseMessages.push(
     new HumanMessage(
       [
         `conversation_id: ${conversationId}`,
         "Flujo: este nodo Agent decide y llama a un unico Agent Tool segun el pedido.",
-        routingHint ? `Routing hint: ${routingHint}` : "Routing hint: none",
         "Devolveme solo la respuesta final, en texto llano.",
         contextText,
         "Mensaje del cliente:",
